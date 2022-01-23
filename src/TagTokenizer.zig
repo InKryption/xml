@@ -281,7 +281,48 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 if (tt.unexpectedEof()) break :tokenization;
                 if (mem.startsWith(u8, src[i..], "?>")) break :tokenization tt.setResult(Tok.init(i, .pi_end, {}));
                 if (!isWhitespaceChar(src[i])) break :tokenization tt.invalidCharacter();
-                
+
+                get_tokens: while (true) {
+                    while (i < src.len and isWhitespaceChar(src[i])) : (i += 1) {
+                        assert(isWhitespaceChar(tt.currentCodepoint()));
+                        assert(tt.currentCodepointLen() == 1);
+                    }
+                    if (tt.unexpectedEof()) break :tokenization;
+
+                    if (mem.startsWith(u8, src[i..], "?>")) break :tokenization tt.setResult(Tok.init(i, .pi_end, {}));
+                    switch (src[i]) {
+                        '\'', '\"' => {
+                            const pi_str_start_index = i;
+                            i += 1;
+
+                            const QuoteType = enum(u8) { single = '\'', double = '\"' };
+                            const quote = @intToEnum(QuoteType, src[pi_str_start_index]);
+
+                            while (i < src.len) : (i += tt.currentCodepointLen()) {
+                                if (src[i] == @enumToInt(quote)) {
+                                    assert(tt.currentCodepoint() == @enumToInt(quote));
+                                    i += 1;
+
+                                    suspend tt.setResult(Tok.init(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index }));
+                                    tt.updatePtrs(&i, &src);
+                                    continue :get_tokens;
+                                }
+                            }
+                        },
+                        else => {
+                            const pi_tok_start_index = i;
+
+                            while (i < src.len) : (i += tt.currentCodepointLen()) {
+                                if (isWhitespaceChar(tt.currentCodepoint()) or mem.startsWith(u8, src[i..], "?>")) {
+                                    suspend tt.setResult(Tok.init(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index }));
+                                    tt.updatePtrs(&i, &src);
+                                    continue :get_tokens;
+                                }
+                            }
+                        },
+                    }
+                }
+
                 unreachable;
             },
             '!' => {
@@ -465,6 +506,16 @@ const tests = struct {
         try testing.expectEqual(Tok.Id.pi_target, tok.info);
         try testing.expectEqualStrings(name, tok.slice(tt.src.*));
     }
+    fn expectPiTok(tt: *TagTokenizer, token: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.pi_tok, tok.info);
+        try testing.expectEqualStrings(token, tok.slice(tt.src.*));
+    }
+    fn expectPiStr(tt: *TagTokenizer, str: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.pi_str, tok.info);
+        try testing.expectEqualStrings(str, tok.slice(tt.src.*));
+    }
     fn expectPiEnd(tt: *TagTokenizer) !void {
         const tok = tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_end, tok.info);
@@ -535,6 +586,47 @@ test "TagTokenizer PI" {
     tt.reset("<?a?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectPiStart(&tt);
     try tests.expectPiTarget(&tt, "a");
+    try tests.expectPiEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<?a ?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "a");
+    try tests.expectPiEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<?abc d?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "d");
+    try tests.expectPiEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<?abc def = ''?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "''");
+    try tests.expectPiEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<?abc def = \"g\"?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "\"g\"");
+    try tests.expectPiEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<?abc def = 'ghi'\"\" ?>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "'ghi'");
+    try tests.expectPiStr(&tt, "\"\"");
     try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 }

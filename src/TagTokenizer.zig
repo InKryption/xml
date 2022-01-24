@@ -383,7 +383,10 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 tt.setResult(Tok.init(i - "--".len, .comment_end, {}));
                                 break :tokenization;
                             },
-                            else => unreachable,
+                            else => {
+                                tt.setInvalidChararcter();
+                                break :tokenization;
+                            },
                         }
                     },
                     '[' => {
@@ -1281,21 +1284,27 @@ test "TagTokenizer Element Open" {
     tt.reset("<A B='foo&bar;baz'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
+
     try tests.expectAttr(&tt, "B", &.{ .{ .text = "foo" }, .{ .entref = "bar" }, .{ .text = "baz" } });
+
     try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
     tt.reset("<A B='&foo;bar&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
-    try tests.expectAttr(&tt, "B", &.{ .{ .entref = "foo" }, .{ .text = "bar" }, .{ .entref = "baz" } });
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .text = "bar" }, .{ .entref = "baz" } });
     try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
     tt.reset("<A B='&foo;&bar;&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
-    try tests.expectAttr(&tt, "B", &.{ .{ .entref = "foo" }, .{ .entref = "bar" }, .{ .entref = "baz" } });
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .entref = "bar" }, .{ .entref = "baz" } });
     try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 }

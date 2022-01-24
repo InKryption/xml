@@ -678,7 +678,7 @@ const tests = struct {
     }
 };
 
-test "TagTokenizer empty" {
+test "TagTokenizer Empty" {
     var tt = TagTokenizer{};
 
     tt.reset("").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
@@ -775,7 +775,7 @@ test "TagTokenizer PI" {
     try tests.expectNull(&tt);
 }
 
-test "TagTokenizer comment" {
+test "TagTokenizer Comment" {
     var tt = TagTokenizer{};
 
     tt.reset("<!--").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
@@ -901,8 +901,7 @@ test "TagTokenizer Element Close" {
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
--
-    tt.reset("</foo>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    -tt.reset("</foo>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemCloseStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectElemTagEnd(&tt);

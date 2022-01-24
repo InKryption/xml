@@ -279,8 +279,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 tt.updatePtrs(&i, &src);
 
                 if (tt.unexpectedEof()) break :tokenization;
-                if (mem.startsWith(u8, src[i..], "?>")) break :tokenization tt.setResult(Tok.init(i, .pi_end, {}));
-                if (!isWhitespaceChar(src[i])) break :tokenization tt.invalidCharacter();
+                if (mem.startsWith(u8, src[i..], "?>")) {
+                    tt.setResult(Tok.init(i, .pi_end, {}));
+                    break :tokenization;
+                }
+                if (!isWhitespaceChar(src[i])) {
+                    tt.invalidCharacter();
+                    break :tokenization;
+                }
 
                 get_tokens: while (true) {
                     while (i < src.len and isWhitespaceChar(src[i])) : (i += 1) {
@@ -289,7 +295,10 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     }
                     if (tt.unexpectedEof()) break :tokenization;
 
-                    if (mem.startsWith(u8, src[i..], "?>")) break :tokenization tt.setResult(Tok.init(i, .pi_end, {}));
+                    if (mem.startsWith(u8, src[i..], "?>")) {
+                        tt.setResult(Tok.init(i, .pi_end, {}));
+                        break :tokenization;
+                    }
                     switch (src[i]) {
                         '\'', '\"' => {
                             const pi_str_start_index = i;
@@ -341,13 +350,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                                 i += 1;
                                 if (tt.unexpectedEof()) break :tokenization;
-                                if (mem.startsWith(u8, src[i..], "--")) break :tokenization {
+                                if (mem.startsWith(u8, src[i..], "--")) {
                                     if (i + "--".len >= src.len or src[i + "--".len] != '>') {
                                         tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleSlashInComment }));
                                     } else {
                                         tt.setResult(Tok.init("<!--".len, .comment_end, {}));
                                     }
-                                };
+                                    break :tokenization;
+                                }
 
                                 seek_double_slash: while (true) {
                                     _ = tt.currentCodepoint();
@@ -365,17 +375,62 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 assert(mem.startsWith(u8, src[i..], "--"));
                                 i += "--".len;
 
-                                if (i == src.len or src[i] != '>') break :tokenization {
+                                if (i == src.len or src[i] != '>') {
                                     tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleSlashInComment }));
-                                };
+                                    break :tokenization;
+                                }
 
-                                break :tokenization tt.setResult(Tok.init(i - "--".len, .comment_end, {}));
+                                tt.setResult(Tok.init(i - "--".len, .comment_end, {}));
+                                break :tokenization;
                             },
                             else => unreachable,
                         }
                     },
-                    '[' => unreachable,
-                    else => break :tokenization tt.invalidCharacter(),
+                    '[' => {
+                        inline for ("CDATA[") |expected_char| {
+                            i += 1;
+                            if (tt.unexpectedEof()) break :tokenization;
+
+                            if (src[i] != expected_char) {
+                                tt.invalidCharacter();
+                                break :tokenization;
+                            }
+                            assert(tt.currentCodepoint() == expected_char);
+                            assert(tt.currentCodepointLen() == 1);
+                        }
+
+                        suspend tt.setResult(Tok.init(0, .cdata_start, {}));
+                        tt.updatePtrs(&i, &src);
+
+                        i += 1;
+                        if (tt.unexpectedEof()) break :tokenization;
+
+                        if (mem.startsWith(u8, src[i..], "]]>")) {
+                            tt.setResult(Tok.init("<![CDATA[".len, .cdata_end, {}));
+                            break :tokenization;
+                        }
+
+                        while (true) {
+                            _ = tt.currentCodepoint();
+                            i += tt.currentCodepointLen();
+
+                            if (i == src.len or mem.startsWith(u8, src[i..], "]]>")) {
+                                suspend tt.setResult(Tok.init("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len }));
+                                tt.updatePtrs(&i, &src);
+
+                                if (tt.unexpectedEof()) break :tokenization;
+                                break;
+                            }
+                        }
+
+                        assert(mem.startsWith(u8, src[i..], "]]>"));
+                        tt.setResult(Tok.init(i, .cdata_end, {}));
+                        break :tokenization;
+                    },
+                    else => {
+                        tt.invalidCharacter();
+                        break :tokenization;
+                    },
                 }
             },
             '/' => unreachable,
@@ -393,6 +448,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
 fn setResult(tt: *TagTokenizer, tok: Tok) void {
     assert(tt.tok.* == null);
+    assert(tt.debug_valid_resume);
     tt.tok.* = tok;
 }
 
@@ -405,19 +461,22 @@ fn updatePtrs(tt: *TagTokenizer, i: *const usize, src: *const []const u8) void {
     }
 }
 
-/// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
-/// the function does not modify anything
-inline fn currentCodepointLen(tt: *TagTokenizer) u3 {
-    return unicode.utf8ByteSequenceLength(tt.src.*[tt.i.*]) catch unreachable;
-}
+usingnamespace utility;
+const utility = struct {
+    /// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
+    /// the function does not modify anything
+    pub inline fn currentCodepointLen(tt: *TagTokenizer) u3 {
+        return unicode.utf8ByteSequenceLength(tt.src.*[tt.i.*]) catch unreachable;
+    }
 
-/// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
-/// the function does not modify anything
-inline fn currentCodepoint(tt: *TagTokenizer) u21 {
-    const cp_len = tt.currentCodepointLen();
-    assert(tt.i.* + cp_len <= tt.src.len);
-    return unicode.utf8Decode(tt.src.*[tt.i.* .. tt.i.* + cp_len]) catch unreachable;
-}
+    /// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
+    /// the function does not modify anything
+    pub inline fn currentCodepoint(tt: *TagTokenizer) u21 {
+        const cp_len = tt.currentCodepointLen();
+        assert(tt.i.* + cp_len <= tt.src.len);
+        return unicode.utf8Decode(tt.src.*[tt.i.* .. tt.i.* + cp_len]) catch unreachable;
+    }
+};
 
 usingnamespace error_handling;
 const error_handling = struct {
@@ -538,6 +597,22 @@ const tests = struct {
         try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
     }
 
+    fn expectCDataStart(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.cdata_start, tok.info);
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
+    }
+    fn expectCDataText(tt: *TagTokenizer, text: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.cdata_text, tok.info);
+        try testing.expectEqualStrings(text, tok.slice(tt.src.*));
+    }
+    fn expectCDataEnd(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.cdata_end, tok.info);
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
+    }
+
     fn expectErr(tt: *TagTokenizer, err: TagTokenizer.Error) !void {
         const tok = tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(TagTokenizer.Tok.Id.err, tok.info);
@@ -559,7 +634,7 @@ test "TagTokenizer empty" {
     try tests.expectNull(&tt);
 }
 
-test "TagTokenizer PI" {
+test "TagTokenizer incomplete unexpected eof" {
     var tt = TagTokenizer{};
 
     tt.reset("<").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
@@ -570,6 +645,24 @@ test "TagTokenizer PI" {
     try tests.expectPiStart(&tt);
     try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
+
+    tt.reset("<!").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<!-").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    inline for ([_]void{undefined} ** "[CDATA".len) |_, i| {
+        tt.reset("<!" ++ ("[CDATA"[0 .. i + 1])).assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+        try tests.expectErr(&tt, Error.UnexpectedEof);
+        try tests.expectNull(&tt);
+    }
+}
+
+test "TagTokenizer PI" {
+    var tt = TagTokenizer{};
 
     tt.reset("<?a").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectPiStart(&tt);
@@ -634,14 +727,6 @@ test "TagTokenizer PI" {
 test "TagTokenizer comment" {
     var tt = TagTokenizer{};
 
-    tt.reset("<!").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
-    try tests.expectErr(&tt, Error.UnexpectedEof);
-    try tests.expectNull(&tt);
-
-    tt.reset("<!-").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
-    try tests.expectErr(&tt, Error.UnexpectedEof);
-    try tests.expectNull(&tt);
-
     tt.reset("<!--").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectCommentStart(&tt);
     try tests.expectErr(&tt, Error.UnexpectedEof);
@@ -684,5 +769,58 @@ test "TagTokenizer comment" {
     try tests.expectCommentStart(&tt);
     try tests.expectCommentText(&tt, " - ");
     try tests.expectCommentEnd(&tt);
+    try tests.expectNull(&tt);
+}
+
+test "TagTokenizer CDATA" {
+    var tt = TagTokenizer{};
+
+    tt.reset("<![CDATA[").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<![CDATA[]").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "]");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<![CDATA[]]").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "]]");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<![CDATA[]]>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataEnd(&tt);
+    try tests.expectNull(&tt);
+
+    inline for (.{
+        "]",
+        "]]",
+        "]]]",
+        "]]]]",
+        "]>",
+        "]>]",
+    }) |maybe_ambiguous_content| {
+        tt.reset("<![CDATA[" ++ maybe_ambiguous_content ++ "]]>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+        try tests.expectCDataStart(&tt);
+        try tests.expectCDataText(&tt, maybe_ambiguous_content);
+        try tests.expectCDataEnd(&tt);
+        try tests.expectNull(&tt);
+    }
+
+    tt.reset("<![CDATA[a]]>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "a");
+    try tests.expectCDataEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<![CDATA[ foobar ]]>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, " foobar ");
+    try tests.expectCDataEnd(&tt);
     try tests.expectNull(&tt);
 }

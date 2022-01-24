@@ -898,6 +898,24 @@ const tests = struct {
     fn expectNull(tt: *TagTokenizer) !void {
         try testing.expectEqual(@as(?TagTokenizer.Tok, null), tt.next());
     }
+
+    pub usingnamespace short_hands;
+    const short_hands = struct {
+        pub fn expectAttrValEntref(tt: *TagTokenizer, id: []const u8) !void {
+            try tests.expectAttrValEntrefStart(tt);
+            try tests.expectAttrValEntrefId(tt, id);
+            try tests.expectAttrValEntrefEnd(tt);
+        }
+
+        pub fn expectAttrVal(tt: *TagTokenizer, segments: []const union(enum) { text: []const u8, entref: []const u8 }) !void {
+            try tests.expectAttrQuote(tt);
+            for (segments) |seg| switch (seg) {
+                .text => |text| try tests.expectAttrValText(tt, text),
+                .entref => |id| try tests.expectAttrValEntref(tt, id),
+            };
+            try tests.expectAttrQuote(tt);
+        }
+    };
 };
 
 test "TagTokenizer Unexpected Eof" {
@@ -1208,6 +1226,7 @@ test "TagTokenizer Element Open" {
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
     try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar = />").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
@@ -1215,107 +1234,77 @@ test "TagTokenizer Element Open" {
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
     try tests.expectErr(&tt, Error.InvalidCharacter);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar=''/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{});
     try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar=\"baz\"/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValText(&tt, "baz");
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{.{ .text = "baz" }});
     try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar='&baz;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "baz");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{.{ .entref = "baz" }});
     try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar='&#0123456789abcdef;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "#0123456789abcdef");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{.{ .entref = "#0123456789abcdef" }});
     try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<foo bar='&#0x0123456789abcdef;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectAttrName(&tt, "bar");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "#0x0123456789abcdef");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{.{ .entref = "#0x0123456789abcdef" }});
     try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<A B='foo&bar;baz'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
     try tests.expectAttrName(&tt, "B");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValText(&tt, "foo");
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "bar");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrValText(&tt, "baz");
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .text = "foo" }, .{ .entref = "bar" }, .{ .text = "baz" } });
     try tests.expectElemTagEnd(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<A B='&foo;bar&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
     try tests.expectAttrName(&tt, "B");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "foo");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrValText(&tt, "bar");
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "baz");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .text = "bar" }, .{ .entref = "baz" } });
     try tests.expectElemTagEnd(&tt);
+    try tests.expectNull(&tt);
 
     tt.reset("<A B='&foo;&bar;&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemOpenStart(&tt);
     try tests.expectElemTagName(&tt, "A");
     try tests.expectAttrName(&tt, "B");
     try tests.expectAttrEql(&tt);
-    try tests.expectAttrQuote(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "foo");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "bar");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrValEntrefStart(&tt);
-    try tests.expectAttrValEntrefId(&tt, "baz");
-    try tests.expectAttrValEntrefEnd(&tt);
-    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .entref = "bar" }, .{ .entref = "baz" } });
     try tests.expectElemTagEnd(&tt);
+    try tests.expectNull(&tt);
 }

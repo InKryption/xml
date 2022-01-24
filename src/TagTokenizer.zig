@@ -24,8 +24,7 @@ debug_valid_resume: DebugType(bool) = debugValue(false),
 pub const Error = error{
     UnexpectedEof,
     InvalidCharacter,
-    InvalidDoubleSlashInComment,
-    InvalidNameStartChar,
+    InvalidDoubleDashInComment,
 };
 
 pub fn next(tt: *TagTokenizer) ?Tok {
@@ -258,11 +257,17 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
     tt.updatePtrs(&i, &src);
 
     tokenization: {
-        if (src.len == 0) break :tokenization;
+        assert(src.len != 0);
         assert(src[0] == '<');
 
         i += 1;
-        if (tt.unexpectedEof()) break :tokenization;
+        if (i == src.len) {
+            suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
+            tt.updatePtrs(&i, &src);
+
+            assert(tt.unexpectedEof());
+            break :tokenization;
+        }
 
         switch (src[i]) {
             '?' => {
@@ -284,15 +289,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     break :tokenization;
                 }
                 if (!isWhitespaceChar(src[i])) {
-                    tt.invalidCharacter();
+                    tt.setInvalidChararcter();
                     break :tokenization;
                 }
 
                 get_tokens: while (true) {
-                    while (i < src.len and isWhitespaceChar(src[i])) : (i += 1) {
-                        assert(isWhitespaceChar(tt.currentCodepoint()));
-                        assert(tt.currentCodepointLen() == 1);
-                    }
+                    i = tt.nextNonWhitespaceCharIndex();
                     if (tt.unexpectedEof()) break :tokenization;
 
                     if (mem.startsWith(u8, src[i..], "?>")) {
@@ -331,8 +333,6 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         },
                     }
                 }
-
-                unreachable;
             },
             '!' => {
                 i += 1;
@@ -352,7 +352,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 if (tt.unexpectedEof()) break :tokenization;
                                 if (mem.startsWith(u8, src[i..], "--")) {
                                     if (i + "--".len >= src.len or src[i + "--".len] != '>') {
-                                        tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleSlashInComment }));
+                                        tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
                                     } else {
                                         tt.setResult(Tok.init("<!--".len, .comment_end, {}));
                                     }
@@ -376,7 +376,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 i += "--".len;
 
                                 if (i == src.len or src[i] != '>') {
-                                    tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleSlashInComment }));
+                                    tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
                                     break :tokenization;
                                 }
 
@@ -392,7 +392,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             if (tt.unexpectedEof()) break :tokenization;
 
                             if (src[i] != expected_char) {
-                                tt.invalidCharacter();
+                                tt.setInvalidChararcter();
                                 break :tokenization;
                             }
                             assert(tt.currentCodepoint() == expected_char);
@@ -428,7 +428,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         break :tokenization;
                     },
                     else => {
-                        tt.invalidCharacter();
+                        tt.setInvalidChararcter();
                         break :tokenization;
                     },
                 }
@@ -445,21 +445,192 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 suspend tt.setResult(Tok.init("</".len, .elem_tag_name, .{ .len = i - "</".len }));
                 tt.updatePtrs(&i, &src);
 
-                while (i < src.len and isWhitespaceChar(tt.currentCodepoint())) : (i += 1) {
-                    assert(tt.currentCodepointLen() == 1);
-                    assert(isWhitespaceChar(tt.currentCodepoint()));
-                }
+                i = tt.nextNonWhitespaceCharIndex();
 
                 if (tt.unexpectedEof()) break :tokenization;
                 if (src[i] != '>') {
-                    tt.invalidCharacter();
+                    tt.setInvalidChararcter();
                     break :tokenization;
                 }
 
                 tt.setResult(Tok.init(i, .elem_tag_end, {}));
                 break :tokenization;
             },
-            else => unreachable,
+            else => {
+                suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
+                tt.updatePtrs(&i, &src);
+
+                if (tt.invalidNameStartChar()) break :tokenization;
+                i += tt.currentCodepointLen();
+
+                while (i < src.len and isValidNameChar(tt.currentCodepoint())) : (i += tt.currentCodepointLen()) {}
+                suspend tt.setResult(Tok.init("<".len, .elem_tag_name, .{ .len = i - "<".len }));
+                tt.updatePtrs(&i, &src);
+
+                get_attributes: while (true) {
+                    i = tt.nextNonWhitespaceCharIndex();
+                    if (tt.unexpectedEof()) break :tokenization;
+
+                    switch (src[i]) {
+                        '>' => {
+                            tt.setResult(Tok.init(i, .elem_tag_end, {}));
+                            break :tokenization;
+                        },
+                        '/' => {
+                            if (i + 1 == src.len) {
+                                tt.setInvalidChararcter();
+                                break :tokenization;
+                            }
+
+                            if (src[i + 1] != '>') {
+                                tt.setInvalidChararcter();
+                                break :tokenization;
+                            }
+
+                            tt.setResult(Tok.init(i, .elem_close_inline, {}));
+                            break :tokenization;
+                        },
+                        else => {
+                            const attr_name_start_index = i;
+                            if (tt.invalidNameStartChar()) break :tokenization;
+                            i += tt.currentCodepointLen();
+                            while (i < src.len and isValidNameChar(tt.currentCodepoint())) : (i += tt.currentCodepointLen()) {}
+
+                            suspend tt.setResult(Tok.init(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index }));
+                            tt.updatePtrs(&i, &src);
+
+                            i = tt.nextNonWhitespaceCharIndex();
+                            if (tt.unexpectedEof()) break :tokenization;
+
+                            if (src[i] != '=') {
+                                tt.setInvalidChararcter();
+                                break :tokenization;
+                            }
+
+                            suspend tt.setResult(Tok.init(i, .attr_eql, {}));
+                            tt.updatePtrs(&i, &src);
+
+                            i += 1;
+                            i = tt.nextNonWhitespaceCharIndex();
+                            if (tt.unexpectedEof()) break :tokenization;
+
+                            const QuoteType = enum(u8) { single = '\'', double = '\"' };
+                            const quote: QuoteType = switch (src[i]) {
+                                '\"', '\'' => @intToEnum(QuoteType, src[i]),
+                                else => {
+                                    tt.setInvalidChararcter();
+                                    break :tokenization;
+                                },
+                            };
+                            suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                            tt.updatePtrs(&i, &src);
+
+                            i += 1;
+
+                            get_attr_value: while (true) {
+                                if (tt.unexpectedEof()) break :tokenization;
+
+                                if (@enumToInt(quote) == src[i]) {
+                                    suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                                    tt.updatePtrs(&i, &src);
+
+                                    i += 1;
+                                    if (tt.unexpectedEof()) break :tokenization;
+
+                                    if (src[i] != '>' and
+                                        src[i] != '/' and
+                                        !isWhitespaceChar(src[i]))
+                                    {
+                                        tt.setInvalidChararcter();
+                                        break :tokenization;
+                                    }
+
+                                    continue :get_attributes;
+                                }
+
+                                if (src[i] == '&') {
+                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_start, {}));
+                                    tt.updatePtrs(&i, &src);
+
+                                    const attr_entref_name_start_index = i;
+                                    _ = attr_entref_name_start_index;
+
+                                    i += 1;
+                                    if (tt.unexpectedEof()) break :tokenization;
+                                    switch (src[i]) {
+                                        '#' => {
+                                            const entref_id_start_index = i;
+
+                                            i += 1;
+                                            if (tt.unexpectedEof()) break :tokenization;
+
+                                            if (mem.startsWith(u8, src[i..], "0x")) i += "0x".len;
+                                            if (tt.unexpectedEof()) break :tokenization;
+
+                                            switch (src[i]) {
+                                                '0'...'9',
+                                                'a'...'f',
+                                                'A'...'F',
+                                                => {},
+                                                else => {
+                                                    tt.setInvalidChararcter();
+                                                    break :tokenization;
+                                                },
+                                            }
+
+                                            while (i < src.len) switch (src[i]) {
+                                                '0'...'9',
+                                                'a'...'f',
+                                                'A'...'F',
+                                                => i += 1,
+                                                else => break,
+                                            };
+
+                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            tt.updatePtrs(&i, &src);
+                                        },
+                                        else => {
+                                            const entref_id_start_index = i;
+                                            if (tt.invalidNameStartChar()) break :tokenization;
+                                            i += tt.currentCodepointLen();
+
+                                            while (i < src.len and isValidNameChar(tt.currentCodepoint())) : (i += tt.currentCodepointLen()) {}
+                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            tt.updatePtrs(&i, &src);
+                                        },
+                                    }
+
+                                    if (tt.unexpectedEof()) break :tokenization;
+                                    if (src[i] != ';') {
+                                        tt.setInvalidChararcter();
+                                        break :tokenization;
+                                    }
+
+                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_end, {}));
+                                    tt.updatePtrs(&i, &src);
+
+                                    i += 1;
+                                    continue :get_attr_value;
+                                }
+
+                                const text_value_start_index = i;
+                                while (i < src.len and src[i] != @enumToInt(quote) and src[i] != '&') : (i += tt.currentCodepointLen()) {}
+
+                                suspend tt.setResult(Tok.init(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index }));
+                                tt.updatePtrs(&i, &src);
+
+                                continue :get_attr_value;
+                            }
+
+                            unreachable;
+                        },
+                    }
+
+                    unreachable;
+                }
+
+                unreachable;
+            },
         }
 
         unreachable;
@@ -501,6 +672,19 @@ const utility = struct {
         assert(tt.i.* + cp_len <= tt.src.len);
         return unicode.utf8Decode(tt.src.*[tt.i.* .. tt.i.* + cp_len]) catch unreachable;
     }
+
+    pub fn nextNonWhitespaceCharIndex(tt: *TagTokenizer) usize {
+        var new_index: usize = tt.i.*;
+        while (new_index < tt.src.len) {
+            const cp_len = unicode.utf8ByteSequenceLength(tt.src.*[new_index]) catch unreachable;
+            assert(new_index + cp_len <= tt.src.len);
+            const cp = unicode.utf8Decode(tt.src.*[new_index .. new_index + cp_len]) catch unreachable;
+            if (isWhitespaceChar(cp)) {
+                new_index += cp_len;
+            } else break;
+        }
+        return new_index;
+    }
 };
 
 usingnamespace error_handling;
@@ -516,7 +700,7 @@ const error_handling = struct {
         }
         return false;
     }
-    pub fn invalidCharacter(tt: *TagTokenizer) void {
+    pub fn setInvalidChararcter(tt: *TagTokenizer) void {
         assert(tt.src.len != 0);
         assert(tt.i.* != 0);
 
@@ -529,7 +713,7 @@ const error_handling = struct {
 
         assert(tt.tok.* == null);
         if (!isValidNameStartChar(tt.currentCodepoint())) {
-            tt.setResult(Tok.init(tt.i.*, .err, .{ .code = Error.InvalidNameStartChar }));
+            tt.setResult(Tok.init(tt.i.*, .err, .{ .code = Error.InvalidCharacter }));
             return true;
         }
         return false;
@@ -664,12 +848,50 @@ const tests = struct {
         try testing.expectEqualStrings(name, tok.slice(tt.src.*));
     }
 
+    fn expectAttrName(tt: *TagTokenizer, name: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_name, tok.info);
+        try testing.expectEqualStrings(name, tok.slice(tt.src.*));
+    }
+    fn expectAttrEql(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_eql, tok.info);
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
+    }
+    fn expectAttrQuote(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_quote, tok.info);
+        try testing.expectEqual(@as(usize, 1), tok.slice(tt.src.*).len);
+        const actual = tok.slice(tt.src.*)[0];
+        try testing.expect(actual == '\"' or actual == '\'');
+    }
+    fn expectAttrValText(tt: *TagTokenizer, text: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_val_text, tok.info);
+        try testing.expectEqualStrings(text, tok.slice(tt.src.*));
+    }
+    fn expectAttrValEntrefStart(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_val_entref_start, tok.info);
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
+    }
+    fn expectAttrValEntrefId(tt: *TagTokenizer, id: []const u8) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_val_entref_id, tok.info);
+        try testing.expectEqualStrings(id, tok.slice(tt.src.*));
+    }
+    fn expectAttrValEntrefEnd(tt: *TagTokenizer) !void {
+        const tok = tt.next() orelse return error.TestExpectedEqual;
+        try testing.expectEqual(Tok.Id.attr_val_entref_end, tok.info);
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(tt.src.*));
+    }
+
     fn expectErr(tt: *TagTokenizer, err: TagTokenizer.Error) !void {
         const tok = tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(TagTokenizer.Tok.Id.err, tok.info);
         try testing.expectEqual(err, tok.info.err.code);
         switch (err) {
-            Error.InvalidDoubleSlashInComment => try testing.expectEqualStrings("--", tt.src.*[tok.index .. tok.index + "--".len]),
+            Error.InvalidDoubleDashInComment => try testing.expectEqualStrings("--", tt.src.*[tok.index .. tok.index + "--".len]),
             else => {},
         }
     }
@@ -678,19 +900,8 @@ const tests = struct {
     }
 };
 
-test "TagTokenizer Empty" {
+test "TagTokenizer Unexpected Eof" {
     var tt = TagTokenizer{};
-
-    tt.reset("").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
-    try tests.expectNull(&tt);
-}
-
-test "TagTokenizer Incomplete Unexpected Eof" {
-    var tt = TagTokenizer{};
-
-    tt.reset("<").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
-    try tests.expectErr(&tt, Error.UnexpectedEof);
-    try tests.expectNull(&tt);
 
     tt.reset("<?").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectPiStart(&tt);
@@ -791,7 +1002,7 @@ test "TagTokenizer Comment" {
 
     tt.reset("<!----").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectCommentStart(&tt);
-    try tests.expectErr(&tt, Error.InvalidDoubleSlashInComment);
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
     tt.reset("<!---->").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
@@ -801,13 +1012,13 @@ test "TagTokenizer Comment" {
 
     tt.reset("<!----->").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectCommentStart(&tt);
-    try tests.expectErr(&tt, Error.InvalidDoubleSlashInComment);
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
     tt.reset("<!-- --->").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectCommentStart(&tt);
     try tests.expectCommentText(&tt, " ");
-    try tests.expectErr(&tt, Error.InvalidDoubleSlashInComment);
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
     tt.reset("<!--- -->").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
@@ -901,7 +1112,8 @@ test "TagTokenizer Element Close" {
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
-    -tt.reset("</foo>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+
+    tt.reset("</foo>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
     try tests.expectElemCloseStart(&tt);
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectElemTagEnd(&tt);
@@ -918,4 +1130,192 @@ test "TagTokenizer Element Close" {
     try tests.expectElemTagName(&tt, "foo");
     try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
+}
+
+test "TagTokenizer Element Open" {
+    var tt = TagTokenizer{};
+
+    tt.reset("<").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<a").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "a");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo/").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo /").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo >").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo />").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemCloseInline(&tt);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo bar ").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo bar />").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
+    try tests.expectNull(&tt);
+
+    tt.reset("<foo bar = ").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
+
+    tt.reset("<foo bar = />").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectErr(&tt, Error.InvalidCharacter);
+
+    tt.reset("<foo bar=''/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemCloseInline(&tt);
+
+    tt.reset("<foo bar=\"baz\"/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValText(&tt, "baz");
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemCloseInline(&tt);
+
+    tt.reset("<foo bar='&baz;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "baz");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemCloseInline(&tt);
+
+    tt.reset("<foo bar='&#0123456789abcdef;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "#0123456789abcdef");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemCloseInline(&tt);
+
+    tt.reset("<foo bar='&#0x0123456789abcdef;'/>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "#0x0123456789abcdef");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemCloseInline(&tt);
+
+    tt.reset("<A B='foo&bar;baz'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValText(&tt, "foo");
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "bar");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrValText(&tt, "baz");
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemTagEnd(&tt);
+
+    tt.reset("<A B='&foo;bar&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "foo");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrValText(&tt, "bar");
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "baz");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemTagEnd(&tt);
+
+    tt.reset("<A B='&foo;&bar;&baz;'>").assumeOk(TagTokenizer.ResetResult.assumeOkPanic);
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "foo");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "bar");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrValEntrefStart(&tt);
+    try tests.expectAttrValEntrefId(&tt, "baz");
+    try tests.expectAttrValEntrefEnd(&tt);
+    try tests.expectAttrQuote(&tt);
+    try tests.expectElemTagEnd(&tt);
 }

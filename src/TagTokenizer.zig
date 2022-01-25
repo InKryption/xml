@@ -1,3 +1,8 @@
+//! Struct which can be default initialized, but must
+//! have its `reset` or `resetUnchecked` function called on it before
+//! being able to produce valid results with its `next` function.
+//! Purpose is to tokenize XML tags. That is, anything beginning with "<".
+
 const std = @import("std");
 const mem = std.mem;
 const meta = std.meta;

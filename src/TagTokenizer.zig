@@ -14,9 +14,6 @@ const print = debug.print;
 const assert = debug.assert;
 
 const util = @import("util.zig");
-const debug_mode = util.debug_mode;
-const DebugType = util.DebugType;
-const debugValue = util.debugValue;
 
 const TagTokenizer = @This();
 state: @Frame(TagTokenizer.tokenize) = undefined,
@@ -24,7 +21,7 @@ tok: *?Tok = undefined,
 
 src: *const []const u8 = undefined,
 i: *const usize = undefined,
-debug_valid_resume: DebugType(bool) = debugValue(false),
+debug_valid_resume: util.DebugType(bool) = util.debugValue(false),
 
 pub const Error = error{
     UnexpectedEof,
@@ -38,9 +35,9 @@ pub fn next(tt: *TagTokenizer) ?Tok {
     tt.tok = &tok;
     defer tt.tok = undefined;
 
-    if (debug_mode) assert(!tt.debug_valid_resume);
+    if (util.debug_mode) assert(!tt.debug_valid_resume);
     resume tt.state;
-    if (debug_mode) {
+    if (util.debug_mode) {
         assert(tt.debug_valid_resume);
         tt.debug_valid_resume = false;
     }
@@ -659,7 +656,7 @@ fn setResult(tt: *TagTokenizer, tok: Tok) void {
 fn updatePtrs(tt: *TagTokenizer, i: *const usize, src: *const []const u8) void {
     tt.i = i;
     tt.src = src;
-    if (debug_mode) {
+    if (util.debug_mode) {
         assert(!tt.debug_valid_resume);
         tt.debug_valid_resume = true;
     }

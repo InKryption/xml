@@ -636,362 +636,343 @@ fn setError(tt: *TagTokenizer, index: usize, code: Error) void {
 }
 
 const tests = struct {
-    // const TestTagTokenizer = struct {
-    //     tt: TagTokenizer = .{},
-    //     src: []const u8 = &.{},
+    const TestTagTokenizer = struct {
+        tt: TagTokenizer = .{},
+        src: []const u8 = &.{},
 
-    //     fn reset(tts: *TestTagTokenizer, src: []const u8) void {
-    //         tts.src = src;
-    //         tts.tt.reset(tts.src).unwrap() catch unreachable;
-    //     }
-    // };
+        fn reset(test_tt: *TestTagTokenizer, src: []const u8) validate_slice.ValidateSliceResult {
+            test_tt.src = src;
+            return test_tt.tt.reset(test_tt.src);
+        }
 
-    fn expectPiStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+        fn resetUnchecked(test_tt: *TestTagTokenizer, src: []const u8) void {
+            test_tt.src = src;
+            test_tt.tt.resetUnchecked(test_tt.src);
+        }
+
+        fn next(test_tt: *TestTagTokenizer) ?Tok {
+            return test_tt.tt.next();
+        }
+    };
+
+    fn expectPiStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectPiTarget(tt: *TagTokenizer, src: []const u8, name: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectPiTarget(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_target, tok.info);
-        try testing.expectEqualStrings(name, tok.slice(src));
+        try testing.expectEqualStrings(name, tok.slice(test_tt.src));
     }
-    fn expectPiTok(tt: *TagTokenizer, src: []const u8, token: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectPiTok(test_tt: *TestTagTokenizer, token: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_tok, tok.info);
-        try testing.expectEqualStrings(token, tok.slice(src));
+        try testing.expectEqualStrings(token, tok.slice(test_tt.src));
     }
-    fn expectPiStr(tt: *TagTokenizer, src: []const u8, str: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectPiStr(test_tt: *TestTagTokenizer, str: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_str, tok.info);
-        try testing.expectEqualStrings(str, tok.slice(src));
+        try testing.expectEqualStrings(str, tok.slice(test_tt.src));
     }
-    fn expectPiEnd(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectPiEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.pi_end, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
 
-    fn expectCommentStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCommentStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.comment_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectCommentText(tt: *TagTokenizer, src: []const u8, text: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCommentText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.comment_text, tok.info);
-        try testing.expectEqualStrings(text, tok.slice(src));
+        try testing.expectEqualStrings(text, tok.slice(test_tt.src));
     }
-    fn expectCommentEnd(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCommentEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.comment_end, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
 
-    fn expectCDataStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCDataStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.cdata_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectCDataText(tt: *TagTokenizer, src: []const u8, text: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCDataText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.cdata_text, tok.info);
-        try testing.expectEqualStrings(text, tok.slice(src));
+        try testing.expectEqualStrings(text, tok.slice(test_tt.src));
     }
-    fn expectCDataEnd(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectCDataEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.cdata_end, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
 
-    fn expectElemOpenStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectElemOpenStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.elem_open_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectElemCloseStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectElemCloseStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.elem_close_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectElemCloseInline(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectElemCloseInline(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.elem_close_inline, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectElemTagEnd(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectElemTagEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.elem_tag_end, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectElemTagName(tt: *TagTokenizer, src: []const u8, name: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectElemTagName(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.elem_tag_name, tok.info);
-        try testing.expectEqualStrings(name, tok.slice(src));
+        try testing.expectEqualStrings(name, tok.slice(test_tt.src));
     }
 
-    fn expectAttrName(tt: *TagTokenizer, src: []const u8, name: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrName(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_name, tok.info);
-        try testing.expectEqualStrings(name, tok.slice(src));
+        try testing.expectEqualStrings(name, tok.slice(test_tt.src));
     }
-    fn expectAttrEql(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrEql(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_eql, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectAttrQuote(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrQuote(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_quote, tok.info);
-        try testing.expectEqual(@as(usize, 1), tok.slice(src).len);
-        const actual = tok.slice(src)[0];
+        try testing.expectEqual(@as(usize, 1), tok.slice(test_tt.src).len);
+        const actual = tok.slice(test_tt.src)[0];
         try testing.expect(actual == '\"' or actual == '\'');
     }
-    fn expectAttrValText(tt: *TagTokenizer, src: []const u8, text: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrValText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_val_text, tok.info);
-        try testing.expectEqualStrings(text, tok.slice(src));
+        try testing.expectEqualStrings(text, tok.slice(test_tt.src));
     }
-    fn expectAttrValEntrefStart(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrValEntrefStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_val_entref_start, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
-    fn expectAttrValEntrefId(tt: *TagTokenizer, src: []const u8, id: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrValEntrefId(test_tt: *TestTagTokenizer, id: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_val_entref_id, tok.info);
-        try testing.expectEqualStrings(id, tok.slice(src));
+        try testing.expectEqualStrings(id, tok.slice(test_tt.src));
     }
-    fn expectAttrValEntrefEnd(tt: *TagTokenizer, src: []const u8) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectAttrValEntrefEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(Tok.Id.attr_val_entref_end, tok.info);
-        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(src));
+        try testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
     }
 
-    fn expectErr(tt: *TagTokenizer, src: []const u8, err: TagTokenizer.Error) !void {
-        const tok = tt.next() orelse return error.TestExpectedEqual;
+    fn expectErr(test_tt: *TestTagTokenizer, err: TagTokenizer.Error) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
         try testing.expectEqual(TagTokenizer.Tok.Id.err, tok.info);
         try testing.expectEqual(err, tok.info.err.code);
         switch (err) {
-            Error.InvalidDoubleDashInComment => try testing.expectEqualStrings("--", src[tok.index .. tok.index + "--".len]),
+            Error.InvalidDoubleDashInComment => try testing.expectEqualStrings("--", test_tt.src[tok.index .. tok.index + "--".len]),
             else => {},
         }
     }
-    fn expectNull(tt: *TagTokenizer) !void {
-        try testing.expectEqual(@as(?TagTokenizer.Tok, null), tt.next());
+    fn expectNull(test_tt: *TestTagTokenizer) !void {
+        try testing.expectEqual(@as(?TagTokenizer.Tok, null), test_tt.next());
     }
 
     pub usingnamespace shorthands;
     const shorthands = struct {
-        pub fn expectAttrValEntref(tt: *TagTokenizer, src: []const u8, id: []const u8) !void {
-            try tests.expectAttrValEntrefStart(tt, src);
-            try tests.expectAttrValEntrefId(tt, src, id);
-            try tests.expectAttrValEntrefEnd(tt, src);
+        pub fn expectAttrValEntref(test_tt: *TestTagTokenizer, id: []const u8) !void {
+            try tests.expectAttrValEntrefStart(test_tt);
+            try tests.expectAttrValEntrefId(test_tt, id);
+            try tests.expectAttrValEntrefEnd(test_tt);
         }
 
         const AttrVal = union(enum) { text: []const u8, entref: []const u8 };
-        pub fn expectAttrVal(tt: *TagTokenizer, src: []const u8, segments: []const AttrVal) !void {
-            try tests.expectAttrQuote(tt, src);
-            for (segments) |seg| switch (seg) {
-                .text => |text| try tests.expectAttrValText(tt, src, text),
-                .entref => |id| try tests.expectAttrValEntref(tt, src, id),
+        pub fn expectAttrVal(test_tt: *TestTagTokenizer, segments: []const AttrVal) !void {
+            try tests.expectAttrQuote(test_tt);
+            for (segments) |seg| try switch (seg) {
+                .text => |text| tests.expectAttrValText(test_tt, text),
+                .entref => |id| tests.expectAttrValEntref(test_tt, id),
             };
-            try tests.expectAttrQuote(tt, src);
+            try tests.expectAttrQuote(test_tt);
         }
 
-        pub fn expectAttr(tt: *TagTokenizer, src: []const u8, name: []const u8, val: []const AttrVal) !void {
-            try tests.expectAttrName(tt, src, name);
-            try tests.expectAttrEql(tt, src);
-            try tests.expectAttrVal(tt, src, val);
+        pub fn expectAttr(test_tt: *TestTagTokenizer, name: []const u8, val: []const AttrVal) !void {
+            try tests.expectAttrName(test_tt, name);
+            try tests.expectAttrEql(test_tt);
+            try tests.expectAttrVal(test_tt, val);
         }
     };
 };
 
 test "TagTokenizer Unexpected Eof" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "<?";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<?").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<!";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<!").unwrap() catch unreachable;
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<!-";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<!-").unwrap() catch unreachable;
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
     inline for ([_]void{undefined} ** "[CDATA".len) |_, i| {
-        src = "<!" ++ ("[CDATA"[0 .. i + 1]);
-        tt.reset(src).unwrap() catch unreachable;
-        try tests.expectErr(&tt, src, Error.UnexpectedEof);
+        tt.reset("<!" ++ ("[CDATA"[0 .. i + 1])).unwrap() catch unreachable;
+        try tests.expectErr(&tt, Error.UnexpectedEof);
         try tests.expectNull(&tt);
     }
 }
 
 test "TagTokenizer PI" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "<?a";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "a");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<?a").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "a");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<?a?";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "a");
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("<?a?").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "a");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "<?a?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "a");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?a?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "a");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<?a ?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "a");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?a ?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "a");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<?abc d?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "abc");
-    try tests.expectPiTok(&tt, src, "d");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?abc d?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "d");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<?abc def = ''?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "abc");
-    try tests.expectPiTok(&tt, src, "def");
-    try tests.expectPiTok(&tt, src, "=");
-    try tests.expectPiStr(&tt, src, "''");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?abc def = ''?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "''");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<?abc def = \"g\"?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "abc");
-    try tests.expectPiTok(&tt, src, "def");
-    try tests.expectPiTok(&tt, src, "=");
-    try tests.expectPiStr(&tt, src, "\"g\"");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?abc def = \"g\"?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "\"g\"");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<?abc def = 'ghi'\"\" ?>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectPiStart(&tt, src);
-    try tests.expectPiTarget(&tt, src, "abc");
-    try tests.expectPiTok(&tt, src, "def");
-    try tests.expectPiTok(&tt, src, "=");
-    try tests.expectPiStr(&tt, src, "'ghi'");
-    try tests.expectPiStr(&tt, src, "\"\"");
-    try tests.expectPiEnd(&tt, src);
+    tt.reset("<?abc def = 'ghi'\"\" ?>").unwrap() catch unreachable;
+    try tests.expectPiStart(&tt);
+    try tests.expectPiTarget(&tt, "abc");
+    try tests.expectPiTok(&tt, "def");
+    try tests.expectPiTok(&tt, "=");
+    try tests.expectPiStr(&tt, "'ghi'");
+    try tests.expectPiStr(&tt, "\"\"");
+    try tests.expectPiEnd(&tt);
     try tests.expectNull(&tt);
 }
 
 test "TagTokenizer Comment" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "<!--";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<!--").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<!---";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectCommentText(&tt, src, "-");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<!---").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectCommentText(&tt, "-");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<!----";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.InvalidDoubleDashInComment);
+    tt.reset("<!----").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
-    src = "<!---->";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectCommentEnd(&tt, src);
+    tt.reset("<!---->").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectCommentEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<!----->";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.InvalidDoubleDashInComment);
+    tt.reset("<!----->").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
-    src = "<!-- --->";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectCommentText(&tt, src, " ");
-    try tests.expectErr(&tt, src, Error.InvalidDoubleDashInComment);
+    tt.reset("<!-- --->").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectCommentText(&tt, " ");
+    try tests.expectErr(&tt, Error.InvalidDoubleDashInComment);
     try tests.expectNull(&tt);
 
-    src = "<!--- -->";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectCommentText(&tt, src, "- ");
-    try tests.expectCommentEnd(&tt, src);
+    tt.reset("<!--- -->").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectCommentText(&tt, "- ");
+    try tests.expectCommentEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<!-- - -->";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCommentStart(&tt, src);
-    try tests.expectCommentText(&tt, src, " - ");
-    try tests.expectCommentEnd(&tt, src);
+    tt.reset("<!-- - -->").unwrap() catch unreachable;
+    try tests.expectCommentStart(&tt);
+    try tests.expectCommentText(&tt, " - ");
+    try tests.expectCommentEnd(&tt);
     try tests.expectNull(&tt);
 }
 
 test "TagTokenizer CDATA" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "<![CDATA[";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<![CDATA[").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<![CDATA[]";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectCDataText(&tt, src, "]");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<![CDATA[]").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "]");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<![CDATA[]]";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectCDataText(&tt, src, "]]");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<![CDATA[]]").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "]]");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<![CDATA[]]>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectCDataEnd(&tt, src);
+    tt.reset("<![CDATA[]]>").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataEnd(&tt);
     try tests.expectNull(&tt);
 
     inline for (.{
@@ -1002,249 +983,216 @@ test "TagTokenizer CDATA" {
         "]>",
         "]>]",
     }) |maybe_ambiguous_content| {
-        src = "<![CDATA[" ++ maybe_ambiguous_content ++ "]]>";
-        tt.reset(src).unwrap() catch unreachable;
-        try tests.expectCDataStart(&tt, src);
-        try tests.expectCDataText(&tt, src, maybe_ambiguous_content);
-        try tests.expectCDataEnd(&tt, src);
+        tt.reset("<![CDATA[" ++ maybe_ambiguous_content ++ "]]>").unwrap() catch unreachable;
+        try tests.expectCDataStart(&tt);
+        try tests.expectCDataText(&tt, maybe_ambiguous_content);
+        try tests.expectCDataEnd(&tt);
         try tests.expectNull(&tt);
     }
 
-    src = "<![CDATA[a]]>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectCDataText(&tt, src, "a");
-    try tests.expectCDataEnd(&tt, src);
+    tt.reset("<![CDATA[a]]>").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, "a");
+    try tests.expectCDataEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<![CDATA[ foobar ]]>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectCDataStart(&tt, src);
-    try tests.expectCDataText(&tt, src, " foobar ");
-    try tests.expectCDataEnd(&tt, src);
+    tt.reset("<![CDATA[ foobar ]]>").unwrap() catch unreachable;
+    try tests.expectCDataStart(&tt);
+    try tests.expectCDataText(&tt, " foobar ");
+    try tests.expectCDataEnd(&tt);
     try tests.expectNull(&tt);
 }
 
 test "TagTokenizer Element Close" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "</";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("</").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "</a";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "a");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("</a").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "a");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "</foo";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("</foo").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "</foo ñ";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("</foo ñ").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "</foo>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("</foo>").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "</foo >";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("</foo >").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "</foo\t >";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemCloseStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("</foo\t >").unwrap() catch unreachable;
+    try tests.expectElemCloseStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 }
 
 test "TagTokenizer Element Open" {
-    var tt = TagTokenizer{};
-    var src: []const u8 = undefined;
+    var tt = tests.TestTagTokenizer{};
 
-    src = "<";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<a";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "a");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<a").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "a");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<foo";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<foo").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<foo/";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("<foo/").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "<foo /";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("<foo /").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "<foo>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("<foo>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo >";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("<foo >").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo />";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo />").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo bar ";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttrName(&tt, src, "bar");
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<foo bar ").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<foo bar />";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttrName(&tt, src, "bar");
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("<foo bar />").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "<foo bar = ";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttrName(&tt, src, "bar");
-    try tests.expectAttrEql(&tt, src);
-    try tests.expectErr(&tt, src, Error.UnexpectedEof);
+    tt.reset("<foo bar = ").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 
-    src = "<foo bar = />";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttrName(&tt, src, "bar");
-    try tests.expectAttrEql(&tt, src);
-    try tests.expectErr(&tt, src, Error.InvalidCharacter);
+    tt.reset("<foo bar = />").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttrName(&tt, "bar");
+    try tests.expectAttrEql(&tt);
+    try tests.expectErr(&tt, Error.InvalidCharacter);
     try tests.expectNull(&tt);
 
-    src = "<foo bar=''/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttr(&tt, src, "bar", &.{});
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo bar=''/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttr(&tt, "bar", &.{});
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo bar=\"baz\"/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttr(&tt, src, "bar", &.{.{ .text = "baz" }});
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo bar=\"baz\"/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttr(&tt, "bar", &.{.{ .text = "baz" }});
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo bar='&baz;'/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttr(&tt, src, "bar", &.{.{ .entref = "baz" }});
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo bar='&baz;'/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttr(&tt, "bar", &.{.{ .entref = "baz" }});
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo bar='&#0123456789abcdef;'/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttr(&tt, src, "bar", &.{.{ .entref = "#0123456789abcdef" }});
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo bar='&#0123456789abcdef;'/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttr(&tt, "bar", &.{.{ .entref = "#0123456789abcdef" }});
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<foo bar='&#0x0123456789abcdef;'/>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "foo");
-    try tests.expectAttr(&tt, src, "bar", &.{.{ .entref = "#0x0123456789abcdef" }});
-    try tests.expectElemCloseInline(&tt, src);
+    tt.reset("<foo bar='&#0x0123456789abcdef;'/>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "foo");
+    try tests.expectAttr(&tt, "bar", &.{.{ .entref = "#0x0123456789abcdef" }});
+    try tests.expectElemCloseInline(&tt);
     try tests.expectNull(&tt);
 
-    src = "<A B='foo&bar;baz'>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "A");
+    tt.reset("<A B='foo&bar;baz'>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
 
-    try tests.expectAttr(&tt, src, "B", &.{ .{ .text = "foo" }, .{ .entref = "bar" }, .{ .text = "baz" } });
+    try tests.expectAttr(&tt, "B", &.{ .{ .text = "foo" }, .{ .entref = "bar" }, .{ .text = "baz" } });
 
-    try tests.expectElemTagEnd(&tt, src);
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<A B='&foo;bar&baz;'>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "A");
-    try tests.expectAttrName(&tt, src, "B");
-    try tests.expectAttrEql(&tt, src);
-    try tests.expectAttrVal(&tt, src, &.{ .{ .entref = "foo" }, .{ .text = "bar" }, .{ .entref = "baz" } });
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("<A B='&foo;bar&baz;'>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .text = "bar" }, .{ .entref = "baz" } });
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 
-    src = "<A B='&foo;&bar;&baz;'>";
-    tt.reset(src).unwrap() catch unreachable;
-    try tests.expectElemOpenStart(&tt, src);
-    try tests.expectElemTagName(&tt, src, "A");
-    try tests.expectAttrName(&tt, src, "B");
-    try tests.expectAttrEql(&tt, src);
-    try tests.expectAttrVal(&tt, src, &.{ .{ .entref = "foo" }, .{ .entref = "bar" }, .{ .entref = "baz" } });
-    try tests.expectElemTagEnd(&tt, src);
+    tt.reset("<A B='&foo;&bar;&baz;'>").unwrap() catch unreachable;
+    try tests.expectElemOpenStart(&tt);
+    try tests.expectElemTagName(&tt, "A");
+    try tests.expectAttrName(&tt, "B");
+    try tests.expectAttrEql(&tt);
+    try tests.expectAttrVal(&tt, &.{ .{ .entref = "foo" }, .{ .entref = "bar" }, .{ .entref = "baz" } });
+    try tests.expectElemTagEnd(&tt);
     try tests.expectNull(&tt);
 }

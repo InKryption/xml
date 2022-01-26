@@ -79,8 +79,6 @@ pub const ResetResult = union(enum) {
 };
 
 pub fn reset(tt: *TagTokenizer, src: []const u8) ResetResult {
-    tt.resetUnchecked(src);
-
     var i: usize = 0;
     while (i < src.len) {
         const cp_len = unicode.utf8ByteSequenceLength(src[i]) catch |err| return @unionInit(ResetResult, "err", ResetResult.ErrContext{
@@ -101,6 +99,7 @@ pub fn reset(tt: *TagTokenizer, src: []const u8) ResetResult {
         i += cp_len;
     }
 
+    tt.resetUnchecked(src);
     return .ok;
 }
 

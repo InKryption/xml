@@ -103,9 +103,9 @@ pub fn reset(tt: *TagTokenizer, src: []const u8) ResetResult {
     return .ok;
 }
 
-pub fn resetUnchecked(self: *TagTokenizer, src: []const u8) void {
-    self.* = .{};
-    self.state = async self.tokenize(src);
+pub fn resetUnchecked(tt: *TagTokenizer, src: []const u8) void {
+    tt.* = .{};
+    tt.state = async tt.tokenize(src);
 }
 
 pub const Tok = struct {

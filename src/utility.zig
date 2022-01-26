@@ -5,15 +5,6 @@ const unicode = std.unicode;
 
 const assert = debug.assert;
 
-pub fn unexpectedEof(src: []const u8, i: usize) bool {
-    assert(i <= src.len);
-    return i == src.len;
-}
-
-pub fn assertEqualStrings(a: []const u8, b: []const u8) void {
-    assert(mem.eql(u8, a, b));
-}
-
 pub fn codepointAt(src: []const u8, i: usize, cp_len: *u3) u21 {
     assert(i < src.len);
     const codepoint_length = unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
@@ -23,11 +14,11 @@ pub fn codepointAt(src: []const u8, i: usize, cp_len: *u3) u21 {
 }
 
 /// Returns the index of the next non-whitespace character after the provided index, inclusive of the provided index.
-pub fn nextNonWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
+pub fn nextNonXmlWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
     var new_index: usize = start;
     while (new_index < src.len) {
         var cp_len: u3 = undefined;
-        if (isWhitespaceChar(codepointAt(src, new_index, &cp_len))) {
+        if (isXmlWhitespaceChar(codepointAt(src, new_index, &cp_len))) {
             new_index += cp_len;
         } else break;
     }
@@ -35,38 +26,38 @@ pub fn nextNonWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
 }
 
 /// Returns the index of the next non-name character after the provided index, inclusive of the provided index.
-pub fn nextNonNameCharIndexAfter(src: []const u8, start: usize) usize {
+pub fn nextNonXmlNameCharIndexAfter(src: []const u8, start: usize) usize {
     var new_index: usize = start;
     while (new_index < src.len) {
         var cp_len: u3 = undefined;
-        if (isValidNameChar(codepointAt(src, new_index, &cp_len))) {
+        if (isXmlNameChar(codepointAt(src, new_index, &cp_len))) {
             new_index += cp_len;
         } else break;
     }
     return new_index;
 }
 
-/// If the codepoint at the specified index in the string is a valid name start character,
+/// If the codepoint at the specified index in the string is a valid XML name start character,
 /// returns the length of the codepoint; otherwise, returns null.
 /// Asserts that the specified index is less than the length of the string.
 /// Asserts that the index is not 0.
-pub fn validNameStartCharLengthAt(src: []const u8, i: usize) ?u3 {
+pub fn xmlNameStartCharLengthAt(src: []const u8, i: usize) ?u3 {
     assert(i < src.len);
     assert(i != 0);
 
     var cp_len: u3 = undefined;
     const cp = codepointAt(src, i, &cp_len);
-    return if (isValidNameStartChar(cp)) cp_len else null;
+    return if (isXmlNameStartChar(cp)) cp_len else null;
 }
 
-pub inline fn isWhitespaceChar(cp: u21) bool {
+pub inline fn isXmlWhitespaceChar(cp: u21) bool {
     return switch (cp) {
         ' ', '\t', '\n', '\r' => true,
         else => false,
     };
 }
 
-pub inline fn isValidNameStartChar(cp: u21) bool {
+pub inline fn isXmlNameStartChar(cp: u21) bool {
     return switch (cp) {
         ':',
         'A'...'Z',
@@ -89,8 +80,8 @@ pub inline fn isValidNameStartChar(cp: u21) bool {
     };
 }
 
-pub inline fn isValidNameChar(cp: u21) bool {
-    return isValidNameStartChar(cp) or switch (cp) {
+pub inline fn isXmlNameChar(cp: u21) bool {
+    return isXmlNameStartChar(cp) or switch (cp) {
         '-',
         '.',
         '0'...'9',

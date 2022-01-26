@@ -249,57 +249,55 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
         assert(src[0] == '<');
 
         i += 1;
-        if (utility.unexpectedEof(src, i)) {
-            suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
-
-            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+        if (i == src.len) {
+            suspend tt.setResult(0, .elem_open_start, {});
+            tt.setError(i, Error.UnexpectedEof);
             break :tokenization;
         }
 
         switch (src[i]) {
             '?' => {
-                suspend tt.setResult(Tok.init(0, .pi_start, {}));
+                suspend tt.setResult(0, .pi_start, {});
+
+                i += 1;
+                if (i == src.len) {
+                    tt.setError(i, Error.UnexpectedEof);
+                    break :tokenization;
+                }
 
                 tokenize_pi_target: {
-                    i += 1;
-                    if (utility.unexpectedEof(src, i)) {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
-                        break :tokenization;
-                    }
-
-                    i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                    i += utility.xmlNameStartCharLengthAt(src, i) orelse {
+                        tt.setError(i, Error.InvalidCharacter);
                         break :tokenization;
                     };
-                    i = utility.nextNonNameCharIndexAfter(src, i);
+                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult(Tok.init("<?".len, .pi_target, .{ .len = i - "<?".len }));
-
+                    suspend tt.setResult("<?".len, .pi_target, .{ .len = i - "<?".len });
                     break :tokenize_pi_target;
                 }
 
-                if (utility.unexpectedEof(src, i)) {
-                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                if (i == src.len) {
+                    tt.setError(i, Error.UnexpectedEof);
                     break :tokenization;
                 }
                 if (mem.startsWith(u8, src[i..], "?>")) {
-                    tt.setResult(Tok.init(i, .pi_end, {}));
+                    tt.setResult(i, .pi_end, {});
                     break :tokenization;
                 }
-                if (!utility.isWhitespaceChar(src[i])) {
-                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                if (!utility.isXmlWhitespaceChar(src[i])) {
+                    tt.setError(i, Error.InvalidCharacter);
                     break :tokenization;
                 }
 
                 get_tokens: while (true) {
-                    i = utility.nextNonWhitespaceCharIndexAfter(src, i);
-                    if (utility.unexpectedEof(src, i)) {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                    i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                    if (i == src.len) {
+                        tt.setError(i, Error.UnexpectedEof);
                         break :tokenization;
                     }
 
                     if (mem.startsWith(u8, src[i..], "?>")) {
-                        tt.setResult(Tok.init(i, .pi_end, {}));
+                        tt.setResult(i, .pi_end, {});
                         break :tokenization;
                     }
                     switch (src[i]) {
@@ -313,20 +311,16 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             while (i < src.len) : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
                                 if (src[i] == @enumToInt(quote)) {
                                     i += 1;
-
-                                    suspend tt.setResult(Tok.init(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index }));
-
+                                    suspend tt.setResult(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index });
                                     continue :get_tokens;
                                 }
                             }
                         },
                         else => {
                             const pi_tok_start_index = i;
-
                             while (i < src.len) : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
-                                if (utility.isWhitespaceChar(src[i]) or mem.startsWith(u8, src[i..], "?>")) {
-                                    suspend tt.setResult(Tok.init(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index }));
-
+                                if (utility.isXmlWhitespaceChar(src[i]) or mem.startsWith(u8, src[i..], "?>")) {
+                                    suspend tt.setResult(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index });
                                     continue :get_tokens;
                                 }
                             }
@@ -336,34 +330,33 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
             },
             '!' => {
                 i += 1;
-                if (utility.unexpectedEof(src, i)) {
-                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                if (i == src.len) {
+                    tt.setError(i, Error.UnexpectedEof);
                     break :tokenization;
                 }
 
                 switch (src[i]) {
                     '-' => {
                         i += 1;
-                        if (utility.unexpectedEof(src, i)) {
-                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                        if (i == src.len) {
+                            tt.setError(i, Error.UnexpectedEof);
                             break :tokenization;
                         }
 
                         switch (src[i]) {
                             '-' => {
-                                suspend tt.setResult(Tok.init(0, .comment_start, {}));
+                                suspend tt.setResult(0, .comment_start, {});
 
                                 i += 1;
-                                if (utility.unexpectedEof(src, i)) {
-                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                if (i == src.len) {
+                                    tt.setError(i, Error.UnexpectedEof);
                                     break :tokenization;
                                 }
                                 if (mem.startsWith(u8, src[i..], "--")) {
-                                    if (i + "--".len >= src.len or src[i + "--".len] != '>') {
-                                        tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
-                                    } else {
-                                        tt.setResult(Tok.init("<!--".len, .comment_end, {}));
-                                    }
+                                    if (i + "--".len >= src.len or src[i + "--".len] != '>')
+                                        tt.setError(i - "--".len, Error.InvalidDoubleDashInComment)
+                                    else
+                                        tt.setResult("<!--".len, .comment_end, {});
                                     break :tokenization;
                                 }
 
@@ -371,10 +364,10 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                     i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
                                     if (i == src.len or mem.startsWith(u8, src[i..], "--")) {
-                                        suspend tt.setResult(Tok.init("<!--".len, .comment_text, .{ .len = i - "<!--".len }));
+                                        suspend tt.setResult("<!--".len, .comment_text, .{ .len = i - "<!--".len });
 
-                                        if (utility.unexpectedEof(src, i)) {
-                                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                        if (i == src.len) {
+                                            tt.setError(i, Error.UnexpectedEof);
                                             break :tokenization;
                                         }
                                         break :seek_double_slash;
@@ -385,15 +378,15 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 i += "--".len;
 
                                 if (i == src.len or src[i] != '>') {
-                                    tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
+                                    tt.setError(i - "--".len, Error.InvalidDoubleDashInComment);
                                     break :tokenization;
                                 }
 
-                                tt.setResult(Tok.init(i - "--".len, .comment_end, {}));
+                                tt.setResult(i - "--".len, .comment_end, {});
                                 break :tokenization;
                             },
                             else => {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                tt.setError(i, Error.InvalidCharacter);
                                 break :tokenization;
                             },
                         }
@@ -401,38 +394,36 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     '[' => {
                         inline for ("CDATA[") |expected_char| {
                             i += 1;
-                            if (utility.unexpectedEof(src, i)) {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                            if (i == src.len) {
+                                tt.setError(i, Error.UnexpectedEof);
                                 break :tokenization;
                             }
 
                             if (src[i] != expected_char) {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                tt.setError(i, Error.InvalidCharacter);
                                 break :tokenization;
                             }
                         }
-
-                        suspend tt.setResult(Tok.init(0, .cdata_start, {}));
+                        suspend tt.setResult(0, .cdata_start, {});
 
                         i += 1;
-                        if (utility.unexpectedEof(src, i)) {
-                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                        if (i == src.len) {
+                            tt.setError(i, Error.UnexpectedEof);
                             break :tokenization;
                         }
 
                         if (mem.startsWith(u8, src[i..], "]]>")) {
-                            tt.setResult(Tok.init("<![CDATA[".len, .cdata_end, {}));
+                            tt.setResult("<![CDATA[".len, .cdata_end, {});
                             break :tokenization;
                         }
 
                         while (true) {
                             i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
-
                             if (i == src.len or mem.startsWith(u8, src[i..], "]]>")) {
-                                suspend tt.setResult(Tok.init("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len }));
+                                suspend tt.setResult("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len });
 
-                                if (utility.unexpectedEof(src, i)) {
-                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                if (i == src.len) {
+                                    tt.setError(i, Error.UnexpectedEof);
                                     break :tokenization;
                                 }
                                 break;
@@ -440,121 +431,118 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         }
 
                         assert(mem.startsWith(u8, src[i..], "]]>"));
-                        tt.setResult(Tok.init(i, .cdata_end, {}));
+                        tt.setResult(i, .cdata_end, {});
                         break :tokenization;
                     },
                     else => {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                        tt.setError(i, Error.InvalidCharacter);
                         break :tokenization;
                     },
                 }
             },
             '/' => {
-                suspend tt.setResult(Tok.init(0, .elem_close_start, {}));
+                suspend tt.setResult(0, .elem_close_start, {});
 
                 tokenize_name: {
                     i += 1;
-                    if (utility.unexpectedEof(src, i)) {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                    if (i == src.len) {
+                        tt.setError(i, Error.UnexpectedEof);
                         break :tokenization;
                     }
 
-                    i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                    i += utility.xmlNameStartCharLengthAt(src, i) orelse {
+                        tt.setError(i, Error.InvalidCharacter);
                         break :tokenization;
                     };
-                    i = utility.nextNonNameCharIndexAfter(src, i);
+                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult(Tok.init("</".len, .elem_tag_name, .{ .len = i - "</".len }));
-
+                    suspend tt.setResult("</".len, .elem_tag_name, .{ .len = i - "</".len });
                     break :tokenize_name;
                 }
-                i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+                i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
 
-                if (utility.unexpectedEof(src, i)) {
-                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                if (i == src.len) {
+                    tt.setError(i, Error.UnexpectedEof);
                     break :tokenization;
                 }
                 if (src[i] != '>') {
-                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                    tt.setError(i, Error.InvalidCharacter);
                     break :tokenization;
                 }
 
-                tt.setResult(Tok.init(i, .elem_tag_end, {}));
+                tt.setResult(i, .elem_tag_end, {});
                 break :tokenization;
             },
             else => {
-                suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
+                suspend tt.setResult(0, .elem_open_start, {});
 
                 tokenize_name: {
-                    i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                    i += utility.xmlNameStartCharLengthAt(src, i) orelse {
+                        tt.setError(i, Error.InvalidCharacter);
                         break :tokenization;
                     };
-                    i = utility.nextNonNameCharIndexAfter(src, i);
+                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult(Tok.init("<".len, .elem_tag_name, .{ .len = i - "<".len }));
-
+                    suspend tt.setResult("<".len, .elem_tag_name, .{ .len = i - "<".len });
                     break :tokenize_name;
                 }
 
                 get_attributes: while (true) {
-                    i = utility.nextNonWhitespaceCharIndexAfter(src, i);
-                    if (utility.unexpectedEof(src, i)) {
-                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                    i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                    if (i == src.len) {
+                        tt.setError(i, Error.UnexpectedEof);
                         break :tokenization;
                     }
 
                     switch (src[i]) {
                         '>' => {
-                            tt.setResult(Tok.init(i, .elem_tag_end, {}));
+                            tt.setResult(i, .elem_tag_end, {});
                             break :tokenization;
                         },
                         '/' => {
                             if (i + 1 == src.len) {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                tt.setError(i, Error.InvalidCharacter);
                                 break :tokenization;
                             }
 
                             if (src[i + 1] != '>') {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                tt.setError(i, Error.InvalidCharacter);
                                 break :tokenization;
                             }
 
-                            tt.setResult(Tok.init(i, .elem_close_inline, {}));
+                            tt.setResult(i, .elem_close_inline, {});
                             break :tokenization;
                         },
                         else => {
                             tokenize_attr_name: {
                                 const attr_name_start_index = i;
-                                i += utility.validNameStartCharLengthAt(src, i) orelse {
-                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                i += utility.xmlNameStartCharLengthAt(src, i) orelse {
+                                    tt.setError(i, Error.InvalidCharacter);
                                     break :tokenization;
                                 };
-                                i = utility.nextNonNameCharIndexAfter(src, i);
+                                i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                                suspend tt.setResult(Tok.init(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index }));
-
+                                suspend tt.setResult(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index });
                                 break :tokenize_attr_name;
                             }
 
-                            i = utility.nextNonWhitespaceCharIndexAfter(src, i);
-                            if (utility.unexpectedEof(src, i)) {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                            if (i == src.len) {
+                                tt.setError(i, Error.UnexpectedEof);
                                 break :tokenization;
                             }
 
                             if (src[i] != '=') {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                tt.setError(i, Error.InvalidCharacter);
                                 break :tokenization;
                             }
 
-                            suspend tt.setResult(Tok.init(i, .attr_eql, {}));
+                            suspend tt.setResult(i, .attr_eql, {});
 
                             i += 1;
-                            i = utility.nextNonWhitespaceCharIndexAfter(src, i);
-                            if (utility.unexpectedEof(src, i)) {
-                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                            if (i == src.len) {
+                                tt.setError(i, Error.UnexpectedEof);
                                 break :tokenization;
                             }
 
@@ -562,35 +550,35 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             const quote: QuoteType = switch (src[i]) {
                                 '\"', '\'' => @intToEnum(QuoteType, src[i]),
                                 else => {
-                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                    tt.setError(i, Error.InvalidCharacter);
                                     break :tokenization;
                                 },
                             };
 
-                            suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                            suspend tt.setResult(i, .attr_quote, {});
 
                             i += 1;
 
                             get_attr_value: while (true) {
-                                if (utility.unexpectedEof(src, i)) {
-                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                if (i == src.len) {
+                                    tt.setError(i, Error.UnexpectedEof);
                                     break :tokenization;
                                 }
 
                                 if (@enumToInt(quote) == src[i]) {
-                                    suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                                    suspend tt.setResult(i, .attr_quote, {});
 
                                     i += 1;
-                                    if (utility.unexpectedEof(src, i)) {
-                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                    if (i == src.len) {
+                                        tt.setError(i, Error.UnexpectedEof);
                                         break :tokenization;
                                     }
 
                                     if (src[i] != '>' and
                                         src[i] != '/' and
-                                        !utility.isWhitespaceChar(src[i]))
+                                        !utility.isXmlWhitespaceChar(src[i]))
                                     {
-                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                        tt.setError(i, Error.InvalidCharacter);
                                         break :tokenization;
                                     }
 
@@ -598,14 +586,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 }
 
                                 if (src[i] == '&') {
-                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_start, {}));
+                                    suspend tt.setResult(i, .attr_val_entref_start, {});
 
                                     const attr_entref_name_start_index = i;
                                     _ = attr_entref_name_start_index;
 
                                     i += 1;
-                                    if (utility.unexpectedEof(src, i)) {
-                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                    if (i == src.len) {
+                                        tt.setError(i, Error.UnexpectedEof);
                                         break :tokenization;
                                     }
                                     switch (src[i]) {
@@ -613,14 +601,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                             const entref_id_start_index = i;
 
                                             i += 1;
-                                            if (utility.unexpectedEof(src, i)) {
-                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                            if (i == src.len) {
+                                                tt.setError(i, Error.UnexpectedEof);
                                                 break :tokenization;
                                             }
 
                                             if (mem.startsWith(u8, src[i..], "0x")) i += "0x".len;
-                                            if (utility.unexpectedEof(src, i)) {
-                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                            if (i == src.len) {
+                                                tt.setError(i, Error.UnexpectedEof);
                                                 break :tokenization;
                                             }
 
@@ -630,7 +618,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 'A'...'F',
                                                 => {},
                                                 else => {
-                                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                                    tt.setError(i, Error.InvalidCharacter);
                                                     break :tokenization;
                                                 },
                                             }
@@ -643,30 +631,30 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 else => break,
                                             };
 
-                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            suspend tt.setResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
                                         },
                                         else => {
                                             const entref_id_start_index = i;
-                                            i += utility.validNameStartCharLengthAt(src, i) orelse {
-                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                            i += utility.xmlNameStartCharLengthAt(src, i) orelse {
+                                                tt.setError(i, Error.InvalidCharacter);
                                                 break :tokenization;
                                             };
-                                            i = utility.nextNonNameCharIndexAfter(src, i);
+                                            i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            suspend tt.setResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
                                         },
                                     }
 
-                                    if (utility.unexpectedEof(src, i)) {
-                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+                                    if (i == src.len) {
+                                        tt.setError(i, Error.UnexpectedEof);
                                         break :tokenization;
                                     }
                                     if (src[i] != ';') {
-                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+                                        tt.setError(i, Error.InvalidCharacter);
                                         break :tokenization;
                                     }
 
-                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_end, {}));
+                                    suspend tt.setResult(i, .attr_val_entref_end, {});
 
                                     i += 1;
                                     continue :get_attr_value;
@@ -675,33 +663,33 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 const text_value_start_index = i;
                                 while (i < src.len and src[i] != @enumToInt(quote) and src[i] != '&') : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {}
 
-                                suspend tt.setResult(Tok.init(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index }));
-
+                                suspend tt.setResult(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index });
                                 continue :get_attr_value;
                             }
-
                             unreachable;
                         },
                     }
-
                     unreachable;
                 }
-
                 unreachable;
             },
         }
-
         unreachable;
     }
 
+    assert(tt.tok.* != null);
     while (true) {
         suspend {}
     }
 }
 
-fn setResult(tt: *TagTokenizer, tok: Tok) void {
+fn setResult(tt: *TagTokenizer, index: usize, comptime id: Tok.Id, expr: anytype) void {
     assert(tt.tok.* == null);
-    tt.tok.* = tok;
+    tt.tok.* = Tok.init(index, id, expr);
+}
+
+fn setError(tt: *TagTokenizer, index: usize, code: Error) void {
+    tt.setResult(index, .err, .{ .code = code });
 }
 
 const tests = struct {

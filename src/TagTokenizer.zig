@@ -253,7 +253,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
         if (utility.unexpectedEof(src, i)) {
             suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
 
-            tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
             break :tokenization;
         }
 
@@ -264,12 +264,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 tokenize_pi_target: {
                     i += 1;
                     if (utility.unexpectedEof(src, i)) {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                         break :tokenization;
                     }
 
                     i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                         break :tokenization;
                     };
                     i = utility.nextNonNameCharIndexAfter(src, i);
@@ -280,7 +280,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 }
 
                 if (utility.unexpectedEof(src, i)) {
-                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                     break :tokenization;
                 }
                 if (mem.startsWith(u8, src[i..], "?>")) {
@@ -288,14 +288,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     break :tokenization;
                 }
                 if (!utility.isWhitespaceChar(src[i])) {
-                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                     break :tokenization;
                 }
 
                 get_tokens: while (true) {
                     i = utility.nextNonWhitespaceCharIndexAfter(src, i);
                     if (utility.unexpectedEof(src, i)) {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                         break :tokenization;
                     }
 
@@ -338,7 +338,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
             '!' => {
                 i += 1;
                 if (utility.unexpectedEof(src, i)) {
-                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                     break :tokenization;
                 }
 
@@ -346,7 +346,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     '-' => {
                         i += 1;
                         if (utility.unexpectedEof(src, i)) {
-                            tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                             break :tokenization;
                         }
 
@@ -356,7 +356,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                                 i += 1;
                                 if (utility.unexpectedEof(src, i)) {
-                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                     break :tokenization;
                                 }
                                 if (mem.startsWith(u8, src[i..], "--")) {
@@ -375,7 +375,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                         suspend tt.setResult(Tok.init("<!--".len, .comment_text, .{ .len = i - "<!--".len }));
 
                                         if (utility.unexpectedEof(src, i)) {
-                                            tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                             break :tokenization;
                                         }
                                         break :seek_double_slash;
@@ -394,7 +394,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 break :tokenization;
                             },
                             else => {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                 break :tokenization;
                             },
                         }
@@ -403,12 +403,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         inline for ("CDATA[") |expected_char| {
                             i += 1;
                             if (utility.unexpectedEof(src, i)) {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                 break :tokenization;
                             }
 
                             if (src[i] != expected_char) {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                 break :tokenization;
                             }
                         }
@@ -417,7 +417,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                         i += 1;
                         if (utility.unexpectedEof(src, i)) {
-                            tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                             break :tokenization;
                         }
 
@@ -433,7 +433,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 suspend tt.setResult(Tok.init("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len }));
 
                                 if (utility.unexpectedEof(src, i)) {
-                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                     break :tokenization;
                                 }
                                 break;
@@ -445,7 +445,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         break :tokenization;
                     },
                     else => {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                         break :tokenization;
                     },
                 }
@@ -456,12 +456,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 tokenize_name: {
                     i += 1;
                     if (utility.unexpectedEof(src, i)) {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                         break :tokenization;
                     }
 
                     i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                         break :tokenization;
                     };
                     i = utility.nextNonNameCharIndexAfter(src, i);
@@ -473,11 +473,11 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 i = utility.nextNonWhitespaceCharIndexAfter(src, i);
 
                 if (utility.unexpectedEof(src, i)) {
-                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                     break :tokenization;
                 }
                 if (src[i] != '>') {
-                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                     break :tokenization;
                 }
 
@@ -489,7 +489,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                 tokenize_name: {
                     i += utility.validNameStartCharLengthAt(src, i) orelse {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                         break :tokenization;
                     };
                     i = utility.nextNonNameCharIndexAfter(src, i);
@@ -502,7 +502,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 get_attributes: while (true) {
                     i = utility.nextNonWhitespaceCharIndexAfter(src, i);
                     if (utility.unexpectedEof(src, i)) {
-                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                         break :tokenization;
                     }
 
@@ -513,12 +513,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         },
                         '/' => {
                             if (i + 1 == src.len) {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                 break :tokenization;
                             }
 
                             if (src[i + 1] != '>') {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                 break :tokenization;
                             }
 
@@ -529,7 +529,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             tokenize_attr_name: {
                                 const attr_name_start_index = i;
                                 i += utility.validNameStartCharLengthAt(src, i) orelse {
-                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                     break :tokenization;
                                 };
                                 i = utility.nextNonNameCharIndexAfter(src, i);
@@ -541,12 +541,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                             i = utility.nextNonWhitespaceCharIndexAfter(src, i);
                             if (utility.unexpectedEof(src, i)) {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                 break :tokenization;
                             }
 
                             if (src[i] != '=') {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                 break :tokenization;
                             }
 
@@ -555,7 +555,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             i += 1;
                             i = utility.nextNonWhitespaceCharIndexAfter(src, i);
                             if (utility.unexpectedEof(src, i)) {
-                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                 break :tokenization;
                             }
 
@@ -563,7 +563,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             const quote: QuoteType = switch (src[i]) {
                                 '\"', '\'' => @intToEnum(QuoteType, src[i]),
                                 else => {
-                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                     break :tokenization;
                                 },
                             };
@@ -574,7 +574,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                             get_attr_value: while (true) {
                                 if (utility.unexpectedEof(src, i)) {
-                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                     break :tokenization;
                                 }
 
@@ -583,7 +583,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                                     i += 1;
                                     if (utility.unexpectedEof(src, i)) {
-                                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                         break :tokenization;
                                     }
 
@@ -591,7 +591,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                         src[i] != '/' and
                                         !utility.isWhitespaceChar(src[i]))
                                     {
-                                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                         break :tokenization;
                                     }
 
@@ -606,7 +606,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                                     i += 1;
                                     if (utility.unexpectedEof(src, i)) {
-                                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                         break :tokenization;
                                     }
                                     switch (src[i]) {
@@ -615,13 +615,13 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                                             i += 1;
                                             if (utility.unexpectedEof(src, i)) {
-                                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                                 break :tokenization;
                                             }
 
                                             if (mem.startsWith(u8, src[i..], "0x")) i += "0x".len;
                                             if (utility.unexpectedEof(src, i)) {
-                                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                                 break :tokenization;
                                             }
 
@@ -631,7 +631,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 'A'...'F',
                                                 => {},
                                                 else => {
-                                                    tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                                    tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                                     break :tokenization;
                                                 },
                                             }
@@ -649,7 +649,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                         else => {
                                             const entref_id_start_index = i;
                                             i += utility.validNameStartCharLengthAt(src, i) orelse {
-                                                tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                                tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                                 break :tokenization;
                                             };
                                             i = utility.nextNonNameCharIndexAfter(src, i);
@@ -659,11 +659,11 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                     }
 
                                     if (utility.unexpectedEof(src, i)) {
-                                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.UnexpectedEof });
+                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
                                         break :tokenization;
                                     }
                                     if (src[i] != ';') {
-                                        tt.tok.* = Tok.init(i, .err, .{ .code = Error.InvalidCharacter });
+                                        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
                                         break :tokenization;
                                     }
 

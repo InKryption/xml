@@ -14,8 +14,6 @@ const unicode = std.unicode;
 const print = debug.print;
 const assert = debug.assert;
 
-const util = @import("util.zig");
-
 const TagTokenizer = @This();
 state: @Frame(TagTokenizer.tokenize) = undefined,
 tok: *?Tok = undefined,

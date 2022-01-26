@@ -20,7 +20,6 @@ state: @Frame(TagTokenizer.tokenize) = undefined,
 tok: *?Tok = undefined,
 
 src: []const u8 = undefined,
-i: usize = undefined,
 debug_valid_resume: util.DebugType(bool) = util.debugValue(false),
 
 pub const Error = error{
@@ -253,95 +252,92 @@ pub const Tok = struct {
 };
 
 fn tokenize(tt: *TagTokenizer, src: []const u8) void {
-    tt.i = 0;
+    var i: usize = 0;
     tt.src = src;
 
     suspend {}
-    tt.assertUnchanged(0, src);
+    tt.assertUnchanged(src);
 
     tokenization: {
         assert(src.len != 0);
         assert(src[0] == '<');
 
-        tt.i += 1;
-        if (tt.i == src.len) {
+        i += 1;
+        if (i == src.len) {
             suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
-            tt.assertUnchanged(1, src);
+            tt.assertUnchanged(src);
 
-            assert(tt.unexpectedEof());
+            assert(tt.unexpectedEof(i));
             break :tokenization;
         }
 
-        switch (src[tt.i]) {
+        switch (src[i]) {
             '?' => {
                 suspend tt.setResult(Tok.init(0, .pi_start, {}));
-                tt.assertUnchanged(1, src);
+                tt.assertUnchanged(src);
 
-                tt.i += 1;
-                if (tt.unexpectedEof()) break :tokenization;
+                tokenize_pi_target: {
+                    i += 1;
+                    if (tt.unexpectedEof(i)) break :tokenization;
 
-                if (tt.invalidNameStartChar()) break :tokenization;
-                while (tt.i < src.len and isValidNameChar(tt.currentCodepoint())) : (tt.i += tt.currentCodepointLen()) {}
+                    if (tt.invalidNameStartChar(i)) break :tokenization;
+                    var cp_len: u3 = undefined;
+                    while (i < src.len and isValidNameChar(utility.codepointAt(src, i, &cp_len))) : (i += cp_len) {}
 
-                set_result: {
-                    const i_before_suspend = tt.i;
-                    suspend tt.setResult(Tok.init("<?".len, .pi_target, .{ .len = tt.i - "<?".len }));
-                    tt.assertUnchanged(i_before_suspend, src);
-                    break :set_result;
+                    suspend tt.setResult(Tok.init("<?".len, .pi_target, .{ .len = i - "<?".len }));
+                    tt.assertUnchanged(src);
+
+                    break :tokenize_pi_target;
                 }
 
-                if (tt.unexpectedEof()) break :tokenization;
-                if (mem.startsWith(u8, src[tt.i..], "?>")) {
-                    tt.setResult(Tok.init(tt.i, .pi_end, {}));
+                if (tt.unexpectedEof(i)) break :tokenization;
+                if (mem.startsWith(u8, src[i..], "?>")) {
+                    tt.setResult(Tok.init(i, .pi_end, {}));
                     break :tokenization;
                 }
-                if (!isWhitespaceChar(src[tt.i])) {
-                    tt.setInvalidChararcter();
+                if (!isWhitespaceChar(src[i])) {
+                    tt.setInvalidChararcter(i);
                     break :tokenization;
                 }
 
                 get_tokens: while (true) {
-                    tt.i = tt.nextNonWhitespaceCharIndex();
-                    if (tt.unexpectedEof()) break :tokenization;
+                    i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+                    if (tt.unexpectedEof(i)) break :tokenization;
 
-                    if (mem.startsWith(u8, src[tt.i..], "?>")) {
-                        tt.setResult(Tok.init(tt.i, .pi_end, {}));
+                    if (mem.startsWith(u8, src[i..], "?>")) {
+                        tt.setResult(Tok.init(i, .pi_end, {}));
                         break :tokenization;
                     }
-                    switch (src[tt.i]) {
+                    switch (src[i]) {
                         '\'', '\"' => {
-                            const pi_str_start_index = tt.i;
-                            tt.i += 1;
+                            const pi_str_start_index = i;
+                            i += 1;
 
                             const QuoteType = enum(u8) { single = '\'', double = '\"' };
                             const quote = @intToEnum(QuoteType, src[pi_str_start_index]);
 
-                            while (tt.i < src.len) : (tt.i += tt.currentCodepointLen()) {
-                                if (src[tt.i] == @enumToInt(quote)) {
-                                    assert(tt.currentCodepoint() == @enumToInt(quote));
-                                    tt.i += 1;
+                            while (i < src.len) : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
+                                if (src[i] == @enumToInt(quote)) {
+                                    var cp_len: u3 = undefined;
+                                    assert(utility.codepointAt(src, i, &cp_len) == @enumToInt(quote));
+                                    assert(cp_len == 1);
+                                    i += 1;
 
-                                    set_result: {
-                                        const i_before_suspend = tt.i;
-                                        suspend tt.setResult(Tok.init(pi_str_start_index, .pi_str, .{ .len = tt.i - pi_str_start_index }));
-                                        tt.assertUnchanged(i_before_suspend, src);
-                                        break :set_result;
-                                    }
+                                    suspend tt.setResult(Tok.init(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index }));
+                                    tt.assertUnchanged(src);
+
                                     continue :get_tokens;
                                 }
                             }
                         },
                         else => {
-                            const pi_tok_start_index = tt.i;
+                            const pi_tok_start_index = i;
 
-                            while (tt.i < src.len) : (tt.i += tt.currentCodepointLen()) {
-                                if (isWhitespaceChar(tt.currentCodepoint()) or mem.startsWith(u8, src[tt.i..], "?>")) {
-                                    set_result: {
-                                        const i_before_suspend = tt.i;
-                                        suspend tt.setResult(Tok.init(pi_tok_start_index, .pi_tok, .{ .len = tt.i - pi_tok_start_index }));
-                                        tt.assertUnchanged(i_before_suspend, src);
-                                        break :set_result;
-                                    }
+                            while (i < src.len) : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
+                                if (isWhitespaceChar(src[i]) or mem.startsWith(u8, src[i..], "?>")) {
+                                    suspend tt.setResult(Tok.init(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index }));
+                                    tt.assertUnchanged(src);
+
                                     continue :get_tokens;
                                 }
                             }
@@ -350,24 +346,24 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                 }
             },
             '!' => {
-                tt.i += 1;
-                if (tt.unexpectedEof()) break :tokenization;
+                i += 1;
+                if (tt.unexpectedEof(i)) break :tokenization;
 
-                switch (src[tt.i]) {
+                switch (src[i]) {
                     '-' => {
-                        tt.i += 1;
-                        if (tt.unexpectedEof()) break :tokenization;
+                        i += 1;
+                        if (tt.unexpectedEof(i)) break :tokenization;
 
-                        switch (src[tt.i]) {
+                        switch (src[i]) {
                             '-' => {
                                 suspend tt.setResult(Tok.init(0, .comment_start, {}));
-                                tt.assertUnchanged(3, src);
+                                tt.assertUnchanged(src);
 
-                                tt.i += 1;
-                                if (tt.unexpectedEof()) break :tokenization;
-                                if (mem.startsWith(u8, src[tt.i..], "--")) {
-                                    if (tt.i + "--".len >= src.len or src[tt.i + "--".len] != '>') {
-                                        tt.setResult(Tok.init(tt.i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
+                                i += 1;
+                                if (tt.unexpectedEof(i)) break :tokenization;
+                                if (mem.startsWith(u8, src[i..], "--")) {
+                                    if (i + "--".len >= src.len or src[i + "--".len] != '>') {
+                                        tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
                                     } else {
                                         tt.setResult(Tok.init("<!--".len, .comment_end, {}));
                                     }
@@ -375,323 +371,283 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 }
 
                                 seek_double_slash: while (true) {
-                                    _ = tt.currentCodepoint();
-                                    tt.i += tt.currentCodepointLen();
+                                    i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
-                                    if (tt.i == src.len or mem.startsWith(u8, src[tt.i..], "--")) {
-                                        set_result: {
-                                            const i_before_suspend = tt.i;
-                                            suspend tt.setResult(Tok.init("<!--".len, .comment_text, .{ .len = tt.i - "<!--".len }));
-                                            tt.assertUnchanged(i_before_suspend, src);
-                                            break :set_result;
-                                        }
+                                    if (i == src.len or mem.startsWith(u8, src[i..], "--")) {
+                                        suspend tt.setResult(Tok.init("<!--".len, .comment_text, .{ .len = i - "<!--".len }));
+                                        tt.assertUnchanged(src);
 
-                                        if (tt.unexpectedEof()) break :tokenization;
+                                        if (tt.unexpectedEof(i)) break :tokenization;
                                         break :seek_double_slash;
                                     }
                                 }
 
-                                assert(mem.startsWith(u8, src[tt.i..], "--"));
-                                tt.i += "--".len;
+                                assert(mem.startsWith(u8, src[i..], "--"));
+                                i += "--".len;
 
-                                if (tt.i == src.len or src[tt.i] != '>') {
-                                    tt.setResult(Tok.init(tt.i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
+                                if (i == src.len or src[i] != '>') {
+                                    tt.setResult(Tok.init(i - "--".len, .err, .{ .code = Error.InvalidDoubleDashInComment }));
                                     break :tokenization;
                                 }
 
-                                tt.setResult(Tok.init(tt.i - "--".len, .comment_end, {}));
+                                tt.setResult(Tok.init(i - "--".len, .comment_end, {}));
                                 break :tokenization;
                             },
                             else => {
-                                tt.setInvalidChararcter();
+                                tt.setInvalidChararcter(i);
                                 break :tokenization;
                             },
                         }
                     },
                     '[' => {
                         inline for ("CDATA[") |expected_char| {
-                            tt.i += 1;
-                            if (tt.unexpectedEof()) break :tokenization;
+                            i += 1;
+                            if (tt.unexpectedEof(i)) break :tokenization;
 
-                            if (src[tt.i] != expected_char) {
-                                tt.setInvalidChararcter();
+                            if (src[i] != expected_char) {
+                                tt.setInvalidChararcter(i);
                                 break :tokenization;
                             }
-                            assert(tt.currentCodepoint() == expected_char);
-                            assert(tt.currentCodepointLen() == 1);
+
+                            var cp_len: u3 = undefined;
+                            assert(utility.codepointAt(src, i, &cp_len) == expected_char);
+                            assert(cp_len == 1);
                         }
 
-                        set_result: {
-                            const i_before_suspend = tt.i;
-                            suspend tt.setResult(Tok.init(0, .cdata_start, {}));
-                            tt.assertUnchanged(i_before_suspend, src);
-                            break :set_result;
-                        }
+                        suspend tt.setResult(Tok.init(0, .cdata_start, {}));
+                        tt.assertUnchanged(src);
 
-                        tt.i += 1;
-                        if (tt.unexpectedEof()) break :tokenization;
+                        i += 1;
+                        if (tt.unexpectedEof(i)) break :tokenization;
 
-                        if (mem.startsWith(u8, src[tt.i..], "]]>")) {
+                        if (mem.startsWith(u8, src[i..], "]]>")) {
                             tt.setResult(Tok.init("<![CDATA[".len, .cdata_end, {}));
                             break :tokenization;
                         }
 
                         while (true) {
-                            _ = tt.currentCodepoint();
-                            tt.i += tt.currentCodepointLen();
+                            i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
-                            if (tt.i == src.len or mem.startsWith(u8, src[tt.i..], "]]>")) {
-                                set_result: {
-                                    const i_before_suspend = tt.i;
-                                    suspend tt.setResult(Tok.init("<![CDATA[".len, .cdata_text, .{ .len = tt.i - "<![CDATA[".len }));
-                                    tt.assertUnchanged(i_before_suspend, src);
-                                    break :set_result;
-                                }
+                            if (i == src.len or mem.startsWith(u8, src[i..], "]]>")) {
+                                suspend tt.setResult(Tok.init("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len }));
+                                tt.assertUnchanged(src);
 
-                                if (tt.unexpectedEof()) break :tokenization;
+                                if (tt.unexpectedEof(i)) break :tokenization;
                                 break;
                             }
                         }
 
-                        assert(mem.startsWith(u8, src[tt.i..], "]]>"));
-                        tt.setResult(Tok.init(tt.i, .cdata_end, {}));
+                        assert(mem.startsWith(u8, src[i..], "]]>"));
+                        tt.setResult(Tok.init(i, .cdata_end, {}));
                         break :tokenization;
                     },
                     else => {
-                        tt.setInvalidChararcter();
+                        tt.setInvalidChararcter(i);
                         break :tokenization;
                     },
                 }
             },
             '/' => {
                 suspend tt.setResult(Tok.init(0, .elem_close_start, {}));
-                tt.assertUnchanged(1, src);
+                tt.assertUnchanged(src);
 
-                tt.i += 1;
-                if (tt.unexpectedEof()) break :tokenization;
-                if (tt.invalidNameStartChar()) break :tokenization;
+                i += 1;
+                if (tt.unexpectedEof(i)) break :tokenization;
+                if (tt.invalidNameStartChar(i)) break :tokenization;
 
-                while (tt.i < src.len and isValidNameChar(tt.currentCodepoint())) : (tt.i += tt.currentCodepointLen()) {}
-                set_result: {
-                    const i_before_suspend = tt.i;
-                    suspend tt.setResult(Tok.init("</".len, .elem_tag_name, .{ .len = tt.i - "</".len }));
-                    tt.assertUnchanged(i_before_suspend, src);
-                    break :set_result;
-                }
+                var cp_len: u3 = undefined;
+                while (i < src.len and isValidNameChar(utility.codepointAt(src, i, &cp_len))) : (i += cp_len) {}
 
-                tt.i = tt.nextNonWhitespaceCharIndex();
+                suspend tt.setResult(Tok.init("</".len, .elem_tag_name, .{ .len = i - "</".len }));
+                tt.assertUnchanged(src);
 
-                if (tt.unexpectedEof()) break :tokenization;
-                if (src[tt.i] != '>') {
-                    tt.setInvalidChararcter();
+                i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+
+                if (tt.unexpectedEof(i)) break :tokenization;
+                if (src[i] != '>') {
+                    tt.setInvalidChararcter(i);
                     break :tokenization;
                 }
 
-                tt.setResult(Tok.init(tt.i, .elem_tag_end, {}));
+                tt.setResult(Tok.init(i, .elem_tag_end, {}));
                 break :tokenization;
             },
             else => {
                 suspend tt.setResult(Tok.init(0, .elem_open_start, {}));
-                tt.assertUnchanged(1, src);
+                tt.assertUnchanged(src);
 
-                if (tt.invalidNameStartChar()) break :tokenization;
-                tt.i += tt.currentCodepointLen();
+                tokenize_name: {
+                    if (tt.invalidNameStartChar(i)) break :tokenization;
+                    i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
-                while (tt.i < src.len and isValidNameChar(tt.currentCodepoint())) : (tt.i += tt.currentCodepointLen()) {}
-                set_result: {
-                    const i_before_suspend = tt.i;
-                    suspend tt.setResult(Tok.init("<".len, .elem_tag_name, .{ .len = tt.i - "<".len }));
-                    tt.assertUnchanged(i_before_suspend, src);
-                    break :set_result;
+                    var cp_len: u3 = undefined;
+                    while (i < src.len and isValidNameChar(utility.codepointAt(src, i, &cp_len))) : (i += cp_len) {}
+                    suspend tt.setResult(Tok.init("<".len, .elem_tag_name, .{ .len = i - "<".len }));
+                    tt.assertUnchanged(src);
+
+                    break :tokenize_name;
                 }
 
                 get_attributes: while (true) {
-                    tt.i = tt.nextNonWhitespaceCharIndex();
-                    if (tt.unexpectedEof()) break :tokenization;
+                    i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+                    if (tt.unexpectedEof(i)) break :tokenization;
 
-                    switch (src[tt.i]) {
+                    switch (src[i]) {
                         '>' => {
-                            tt.setResult(Tok.init(tt.i, .elem_tag_end, {}));
+                            tt.setResult(Tok.init(i, .elem_tag_end, {}));
                             break :tokenization;
                         },
                         '/' => {
-                            if (tt.i + 1 == src.len) {
-                                tt.setInvalidChararcter();
+                            if (i + 1 == src.len) {
+                                tt.setInvalidChararcter(i);
                                 break :tokenization;
                             }
 
-                            if (src[tt.i + 1] != '>') {
-                                tt.setInvalidChararcter();
+                            if (src[i + 1] != '>') {
+                                tt.setInvalidChararcter(i);
                                 break :tokenization;
                             }
 
-                            tt.setResult(Tok.init(tt.i, .elem_close_inline, {}));
+                            tt.setResult(Tok.init(i, .elem_close_inline, {}));
                             break :tokenization;
                         },
                         else => {
-                            const attr_name_start_index = tt.i;
-                            if (tt.invalidNameStartChar()) break :tokenization;
-                            tt.i += tt.currentCodepointLen();
-                            while (tt.i < src.len and isValidNameChar(tt.currentCodepoint())) : (tt.i += tt.currentCodepointLen()) {}
+                            tokenize_attr_name: {
+                                const attr_name_start_index = i;
+                                if (tt.invalidNameStartChar(i)) break :tokenization;
+                                i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
-                            set_result: {
-                                const i_before_suspend = tt.i;
-                                suspend tt.setResult(Tok.init(attr_name_start_index, .attr_name, .{ .len = tt.i - attr_name_start_index }));
-                                tt.assertUnchanged(i_before_suspend, src);
-                                break :set_result;
+                                var cp_len: u3 = undefined;
+                                while (i < src.len and isValidNameChar(utility.codepointAt(src, i, &cp_len))) : (i += cp_len) {}
+
+                                suspend tt.setResult(Tok.init(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index }));
+                                tt.assertUnchanged(src);
+
+                                break :tokenize_attr_name;
                             }
 
-                            tt.i = tt.nextNonWhitespaceCharIndex();
-                            if (tt.unexpectedEof()) break :tokenization;
+                            i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+                            if (tt.unexpectedEof(i)) break :tokenization;
 
-                            if (src[tt.i] != '=') {
-                                tt.setInvalidChararcter();
+                            if (src[i] != '=') {
+                                tt.setInvalidChararcter(i);
                                 break :tokenization;
                             }
 
-                            set_result: {
-                                const i_before_suspend = tt.i;
-                                suspend tt.setResult(Tok.init(tt.i, .attr_eql, {}));
-                                tt.assertUnchanged(i_before_suspend, src);
-                                break :set_result;
-                            }
+                            suspend tt.setResult(Tok.init(i, .attr_eql, {}));
+                            tt.assertUnchanged(src);
 
-                            tt.i += 1;
-                            tt.i = tt.nextNonWhitespaceCharIndex();
-                            if (tt.unexpectedEof()) break :tokenization;
+                            i += 1;
+                            i = utility.nextNonWhitespaceCharIndexAfter(src, i);
+                            if (tt.unexpectedEof(i)) break :tokenization;
 
                             const QuoteType = enum(u8) { single = '\'', double = '\"' };
-                            const quote: QuoteType = switch (src[tt.i]) {
-                                '\"', '\'' => @intToEnum(QuoteType, src[tt.i]),
+                            const quote: QuoteType = switch (src[i]) {
+                                '\"', '\'' => @intToEnum(QuoteType, src[i]),
                                 else => {
-                                    tt.setInvalidChararcter();
+                                    tt.setInvalidChararcter(i);
                                     break :tokenization;
                                 },
                             };
-                            set_result: {
-                                const i_before_suspend = tt.i;
-                                suspend tt.setResult(Tok.init(tt.i, .attr_quote, {}));
-                                tt.assertUnchanged(i_before_suspend, src);
-                                break :set_result;
-                            }
 
-                            tt.i += 1;
+                            suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                            tt.assertUnchanged(src);
+
+                            i += 1;
 
                             get_attr_value: while (true) {
-                                if (tt.unexpectedEof()) break :tokenization;
+                                if (tt.unexpectedEof(i)) break :tokenization;
 
-                                if (@enumToInt(quote) == src[tt.i]) {
-                                    set_result: {
-                                        const i_before_suspend = tt.i;
-                                        suspend tt.setResult(Tok.init(tt.i, .attr_quote, {}));
-                                        tt.assertUnchanged(i_before_suspend, src);
-                                        break :set_result;
-                                    }
+                                if (@enumToInt(quote) == src[i]) {
+                                    suspend tt.setResult(Tok.init(i, .attr_quote, {}));
+                                    tt.assertUnchanged(src);
 
-                                    tt.i += 1;
-                                    if (tt.unexpectedEof()) break :tokenization;
+                                    i += 1;
+                                    if (tt.unexpectedEof(i)) break :tokenization;
 
-                                    if (src[tt.i] != '>' and
-                                        src[tt.i] != '/' and
-                                        !isWhitespaceChar(src[tt.i]))
+                                    if (src[i] != '>' and
+                                        src[i] != '/' and
+                                        !isWhitespaceChar(src[i]))
                                     {
-                                        tt.setInvalidChararcter();
+                                        tt.setInvalidChararcter(i);
                                         break :tokenization;
                                     }
 
                                     continue :get_attributes;
                                 }
 
-                                if (src[tt.i] == '&') {
-                                    set_result: {
-                                        const i_before_suspend = tt.i;
-                                        suspend tt.setResult(Tok.init(tt.i, .attr_val_entref_start, {}));
-                                        tt.assertUnchanged(i_before_suspend, src);
-                                        break :set_result;
-                                    }
+                                if (src[i] == '&') {
+                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_start, {}));
+                                    tt.assertUnchanged(src);
 
-                                    const attr_entref_name_start_index = tt.i;
+                                    const attr_entref_name_start_index = i;
                                     _ = attr_entref_name_start_index;
 
-                                    tt.i += 1;
-                                    if (tt.unexpectedEof()) break :tokenization;
-                                    switch (src[tt.i]) {
+                                    i += 1;
+                                    if (tt.unexpectedEof(i)) break :tokenization;
+                                    switch (src[i]) {
                                         '#' => {
-                                            const entref_id_start_index = tt.i;
+                                            const entref_id_start_index = i;
 
-                                            tt.i += 1;
-                                            if (tt.unexpectedEof()) break :tokenization;
+                                            i += 1;
+                                            if (tt.unexpectedEof(i)) break :tokenization;
 
-                                            if (mem.startsWith(u8, src[tt.i..], "0x")) tt.i += "0x".len;
-                                            if (tt.unexpectedEof()) break :tokenization;
+                                            if (mem.startsWith(u8, src[i..], "0x")) i += "0x".len;
+                                            if (tt.unexpectedEof(i)) break :tokenization;
 
-                                            switch (src[tt.i]) {
+                                            switch (src[i]) {
                                                 '0'...'9',
                                                 'a'...'f',
                                                 'A'...'F',
                                                 => {},
                                                 else => {
-                                                    tt.setInvalidChararcter();
+                                                    tt.setInvalidChararcter(i);
                                                     break :tokenization;
                                                 },
                                             }
 
-                                            while (tt.i < src.len) switch (src[tt.i]) {
+                                            while (i < src.len) switch (src[i]) {
                                                 '0'...'9',
                                                 'a'...'f',
                                                 'A'...'F',
-                                                => tt.i += 1,
+                                                => i += 1,
                                                 else => break,
                                             };
 
-                                            set_result: {
-                                                const i_before_suspend = tt.i;
-                                                suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = tt.i - entref_id_start_index }));
-                                                tt.assertUnchanged(i_before_suspend, src);
-                                                break :set_result;
-                                            }
+                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            tt.assertUnchanged(src);
                                         },
                                         else => {
-                                            const entref_id_start_index = tt.i;
-                                            if (tt.invalidNameStartChar()) break :tokenization;
-                                            tt.i += tt.currentCodepointLen();
+                                            const entref_id_start_index = i;
+                                            if (tt.invalidNameStartChar(i)) break :tokenization;
+                                            i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
-                                            while (tt.i < src.len and isValidNameChar(tt.currentCodepoint())) : (tt.i += tt.currentCodepointLen()) {}
-                                            set_result: {
-                                                const i_before_suspend = tt.i;
-                                                suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = tt.i - entref_id_start_index }));
-                                                tt.assertUnchanged(i_before_suspend, src);
-                                                break :set_result;
-                                            }
+                                            var cp_len: u3 = undefined;
+                                            while (i < src.len and isValidNameChar(utility.codepointAt(src, i, &cp_len))) : (i += cp_len) {}
+
+                                            suspend tt.setResult(Tok.init(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index }));
+                                            tt.assertUnchanged(src);
                                         },
                                     }
 
-                                    if (tt.unexpectedEof()) break :tokenization;
-                                    if (src[tt.i] != ';') {
-                                        tt.setInvalidChararcter();
+                                    if (tt.unexpectedEof(i)) break :tokenization;
+                                    if (src[i] != ';') {
+                                        tt.setInvalidChararcter(i);
                                         break :tokenization;
                                     }
 
-                                    set_result: {
-                                        const i_before_suspend = tt.i;
-                                        suspend tt.setResult(Tok.init(tt.i, .attr_val_entref_end, {}));
-                                        tt.assertUnchanged(i_before_suspend, src);
-                                        break :set_result;
-                                    }
+                                    suspend tt.setResult(Tok.init(i, .attr_val_entref_end, {}));
+                                    tt.assertUnchanged(src);
 
-                                    tt.i += 1;
+                                    i += 1;
                                     continue :get_attr_value;
                                 }
 
-                                const text_value_start_index = tt.i;
-                                while (tt.i < src.len and src[tt.i] != @enumToInt(quote) and src[tt.i] != '&') : (tt.i += tt.currentCodepointLen()) {}
+                                const text_value_start_index = i;
+                                while (i < src.len and src[i] != @enumToInt(quote) and src[i] != '&') : (i += unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {}
 
-                                set_result: {
-                                    const i_before_suspend = tt.i;
-                                    suspend tt.setResult(Tok.init(text_value_start_index, .attr_val_text, .{ .len = tt.i - text_value_start_index }));
-                                    tt.assertUnchanged(i_before_suspend, src);
-                                    break :set_result;
-                                }
+                                suspend tt.setResult(Tok.init(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index }));
+                                tt.assertUnchanged(src);
 
                                 continue :get_attr_value;
                             }
@@ -712,8 +668,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
     while (true) {
         suspend {}
-        const i_before_suspend = tt.i;
-        tt.assertUnchanged(i_before_suspend, src);
+        tt.assertUnchanged(src);
     }
 }
 
@@ -723,10 +678,7 @@ fn setResult(tt: *TagTokenizer, tok: Tok) void {
     tt.tok.* = tok;
 }
 
-fn assertUnchanged(tt: *TagTokenizer, i: usize, src: []const u8) void {
-    assert(tt.i == i);
-    assert(tt.src.ptr == src.ptr);
-    assert(tt.src.len == src.len);
+fn assertUnchanged(tt: *TagTokenizer, src: []const u8) void {
     assert(mem.eql(u8, src, tt.src));
     if (util.debug_mode) {
         assert(!tt.debug_valid_resume);
@@ -734,66 +686,59 @@ fn assertUnchanged(tt: *TagTokenizer, i: usize, src: []const u8) void {
     }
 }
 
-usingnamespace utility;
+usingnamespace error_handling;
+const error_handling = struct {
+    pub fn unexpectedEof(tt: *TagTokenizer, i: usize) bool {
+        assert(tt.src.len != 0);
+        assert(i != 0);
+
+        assert(tt.tok.* == null);
+        if (i == tt.src.len) {
+            tt.setResult(Tok.init(i, .err, .{ .code = Error.UnexpectedEof }));
+            return true;
+        }
+        return false;
+    }
+    pub fn setInvalidChararcter(tt: *TagTokenizer, i: usize) void {
+        assert(tt.src.len != 0);
+        assert(i != 0);
+
+        assert(tt.tok.* == null);
+        tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+    }
+    pub fn invalidNameStartChar(tt: *TagTokenizer, i: usize) bool {
+        assert(tt.src.len != 0);
+        assert(i != 0);
+
+        assert(tt.tok.* == null);
+        var cp_len: u3 = undefined;
+        if (!isValidNameStartChar(utility.codepointAt(tt.src, i, &cp_len))) {
+            tt.setResult(Tok.init(i, .err, .{ .code = Error.InvalidCharacter }));
+            return true;
+        }
+        return false;
+    }
+};
+
 const utility = struct {
-    /// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
-    /// the function does not modify anything
-    pub fn currentCodepointLen(tt: *TagTokenizer) u3 {
-        return unicode.utf8ByteSequenceLength(tt.src[tt.i]) catch unreachable;
+    pub fn codepointAt(src: []const u8, i: usize, cp_len: *u3) u21 {
+        assert(i < src.len);
+        const codepoint_length = unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
+        assert(i + codepoint_length <= src.len);
+        cp_len.* = codepoint_length;
+        return unicode.utf8Decode(src[i .. i + cp_len.*]) catch unreachable;
     }
 
-    /// NOTE: For some reason zig compiler detects a dependency loop if this self parameter is passed by value or by const pointer, so unfortunately have to do this;
-    /// the function does not modify anything
-    pub fn currentCodepoint(tt: *TagTokenizer) u21 {
-        const cp_len = tt.currentCodepointLen();
-        assert(tt.i + cp_len <= tt.src.len);
-        return unicode.utf8Decode(tt.src[tt.i .. tt.i + cp_len]) catch unreachable;
-    }
-
-    pub fn nextNonWhitespaceCharIndex(tt: *TagTokenizer) usize {
-        var new_index: usize = tt.i;
-        while (new_index < tt.src.len) {
-            const cp_len = unicode.utf8ByteSequenceLength(tt.src[new_index]) catch unreachable;
-            assert(new_index + cp_len <= tt.src.len);
-            const cp = unicode.utf8Decode(tt.src[new_index .. new_index + cp_len]) catch unreachable;
-            if (isWhitespaceChar(cp)) {
+    /// Returns the index of the next non-whitespace character after the provided index, inclusive of the provided index.
+    pub fn nextNonWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
+        var new_index: usize = start;
+        while (new_index < src.len) {
+            var cp_len: u3 = undefined;
+            if (isWhitespaceChar(codepointAt(src, new_index, &cp_len))) {
                 new_index += cp_len;
             } else break;
         }
         return new_index;
-    }
-};
-
-usingnamespace error_handling;
-const error_handling = struct {
-    pub fn unexpectedEof(tt: *TagTokenizer) bool {
-        assert(tt.src.len != 0);
-        assert(tt.i != 0);
-
-        assert(tt.tok.* == null);
-        if (tt.i == tt.src.len) {
-            tt.setResult(Tok.init(tt.i, .err, .{ .code = Error.UnexpectedEof }));
-            return true;
-        }
-        return false;
-    }
-    pub fn setInvalidChararcter(tt: *TagTokenizer) void {
-        assert(tt.src.len != 0);
-        assert(tt.i != 0);
-
-        assert(tt.tok.* == null);
-        tt.setResult(Tok.init(tt.i, .err, .{ .code = Error.InvalidCharacter }));
-    }
-    pub fn invalidNameStartChar(tt: *TagTokenizer) bool {
-        assert(tt.src.len != 0);
-        assert(tt.i != 0);
-
-        assert(tt.tok.* == null);
-        if (!isValidNameStartChar(tt.currentCodepoint())) {
-            tt.setResult(Tok.init(tt.i, .err, .{ .code = Error.InvalidCharacter }));
-            return true;
-        }
-        return false;
     }
 };
 

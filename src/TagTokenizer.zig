@@ -14,6 +14,7 @@ const unicode = std.unicode;
 const print = debug.print;
 const assert = debug.assert;
 
+const validate_slice = @import("validate_slice.zig");
 const utility = @import("utility.zig");
 
 const TagTokenizer = @This();
@@ -36,71 +37,13 @@ pub fn next(tt: *TagTokenizer) ?Tok {
     return tok;
 }
 
-pub const ResetResult = union(enum) {
-    ok,
-    err: ErrContext,
-
-    pub fn unwrap(result: ResetResult) ResetResult.Error!void {
-        return switch (result) {
-            .ok => {},
-            .err => |err| err.code,
-        };
+pub fn reset(tt: *TagTokenizer, src: []const u8) validate_slice.ValidateSliceResult {
+    const validation_result = validate_slice.validateUtf8Slice(src);
+    switch (validation_result) {
+        .ok => tt.resetUnchecked(src),
+        .err => {},
     }
-
-    pub fn orElse(
-        result: ResetResult,
-        comptime onError: fn (anytype, ErrContext) void,
-        user_context: anytype,
-    ) ResetResult.Error!void {
-        switch (result) {
-            .ok => {},
-            .err => |err| {
-                onError(user_context, err);
-                return err.code;
-            },
-        }
-    }
-
-    pub const Error = error{
-        Utf8ByteSequenceLengthTooLong,
-
-        Utf8InvalidStartByte,
-        Utf8ExpectedContinuation,
-        Utf8OverlongEncoding,
-        Utf8EncodesSurrogateHalf,
-        Utf8CodepointTooLarge,
-    };
-
-    pub const ErrContext = struct {
-        src: []const u8,
-        code: ResetResult.Error,
-        index: usize,
-    };
-};
-
-pub fn reset(tt: *TagTokenizer, src: []const u8) ResetResult {
-    var i: usize = 0;
-    while (i < src.len) {
-        const cp_len = unicode.utf8ByteSequenceLength(src[i]) catch |err| return @unionInit(ResetResult, "err", ResetResult.ErrContext{
-            .src = src,
-            .code = err,
-            .index = i,
-        });
-        if (i + cp_len > src.len) return @unionInit(ResetResult, "err", ResetResult.ErrContext{
-            .src = src,
-            .code = ResetResult.Error.Utf8ByteSequenceLengthTooLong,
-            .index = i,
-        });
-        if (unicode.utf8Decode(src[i .. i + cp_len])) |_| {} else |err| return @unionInit(ResetResult, "err", ResetResult.ErrContext{
-            .src = src,
-            .code = err,
-            .index = i,
-        });
-        i += cp_len;
-    }
-
-    tt.resetUnchecked(src);
-    return .ok;
+    return validation_result;
 }
 
 pub fn resetUnchecked(tt: *TagTokenizer, src: []const u8) void {
@@ -693,15 +636,15 @@ fn setError(tt: *TagTokenizer, index: usize, code: Error) void {
 }
 
 const tests = struct {
-    const TestTagTokenizer = struct {
-        tt: TagTokenizer = .{},
-        src: []const u8 = &.{},
+    // const TestTagTokenizer = struct {
+    //     tt: TagTokenizer = .{},
+    //     src: []const u8 = &.{},
 
-        fn reset(tts: *TestTagTokenizer, src: []const u8) void {
-            tts.src = src;
-            tts.tt.reset(tts.src).assumeOk(ResetResult.assumeOkPanic);
-        }
-    };
+    //     fn reset(tts: *TestTagTokenizer, src: []const u8) void {
+    //         tts.src = src;
+    //         tts.tt.reset(tts.src).unwrap() catch unreachable;
+    //     }
+    // };
 
     fn expectPiStart(tt: *TagTokenizer, src: []const u8) !void {
         const tok = tt.next() orelse return error.TestExpectedEqual;

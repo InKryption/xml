@@ -27,12 +27,16 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     suspend {}
 
     tokenize: {
-        // i = utility.nextNonWhitespaceCharIndexAfter(src, i);
-
+        i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
         break :tokenize;
     }
 
     while (true) {
         suspend {}
     }
+}
+
+test {
+    var ts = TokenStream{};
+    _ = ts;
 }

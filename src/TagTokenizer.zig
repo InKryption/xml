@@ -18,7 +18,7 @@ const validate_slice = @import("validate_slice.zig");
 const utility = @import("utility.zig");
 
 const TagTokenizer = @This();
-state: @Frame(TagTokenizer.tokenize) = undefined,
+frame: @Frame(TagTokenizer.tokenize) = undefined,
 tok: *?Tok = undefined,
 
 pub const Error = error{
@@ -33,7 +33,7 @@ pub fn next(tt: *TagTokenizer) ?Tok {
     tt.tok = &tok;
     defer tt.tok = undefined;
 
-    resume tt.state;
+    resume tt.frame;
     return tok;
 }
 
@@ -48,7 +48,7 @@ pub fn reset(tt: *TagTokenizer, src: []const u8) validate_slice.ValidateSliceRes
 
 pub fn resetUnchecked(tt: *TagTokenizer, src: []const u8) void {
     tt.* = .{};
-    tt.state = async tt.tokenize(src);
+    tt.frame = async tt.tokenize(src);
 }
 
 pub const Tok = struct {

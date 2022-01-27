@@ -5,7 +5,7 @@ const utility = @import("utility.zig");
 const TagTokenizer = @import("TagTokenizer.zig");
 
 const TokenStream = @This();
-state: @Frame(TokenStream.tokenize) = undefined,
+frame: @Frame(TokenStream.tokenize) = undefined,
 
 pub fn reset(ts: *TokenStream, src: []const u8) validate_slice.ValidateSliceResult {
     const validation_result = validate_slice.validateUtf8Slice(src);
@@ -18,7 +18,7 @@ pub fn reset(ts: *TokenStream, src: []const u8) validate_slice.ValidateSliceResu
 
 pub fn resetUnchecked(ts: *TokenStream, src: []const u8) void {
     ts.* = .{};
-    ts.state = async ts.tokenize(src);
+    ts.frame = async ts.tokenize(src);
 }
 
 pub const Tok = union(enum) {

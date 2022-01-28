@@ -188,10 +188,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
     suspend {}
 
     tokenization: {
-        if (i == src.len) {
-            tt.setError(i, Error.UnexpectedEof);
-            break :tokenization;
-        }
+        if (i == src.len) break :tokenization;
         if (src[i] != '<') {
             tt.setError(i, Error.InvalidCharacter);
             break :tokenization;
@@ -626,7 +623,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
         unreachable;
     }
 
-    assert(tt.tok.* != null);
+    assert(tt.tok.* != null or src.len == 0);
     while (true) {
         suspend {}
     }
@@ -826,7 +823,6 @@ test "TagTokenizer Empty" {
     var tt = tests.TestTagTokenizer{};
 
     tt.reset("").unwrap() catch unreachable;
-    try tests.expectErr(&tt, Error.UnexpectedEof);
     try tests.expectNull(&tt);
 }
 

@@ -5,6 +5,7 @@ const debug = std.debug;
 const testing = std.testing;
 
 const assert = debug.assert;
+const todo = debug.todo;
 
 const validate_slice = @import("validate_slice.zig");
 const utility = @import("utility.zig");
@@ -12,7 +13,7 @@ const TagTokenizer = @import("TagTokenizer.zig");
 
 const TokenStream = @This();
 frame: @Frame(TokenStream.tokenize) = undefined,
-tok: *?Tok,
+tok: *?Tok = undefined,
 
 pub const Error = error{};
 
@@ -75,32 +76,36 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     tokenization: {
         i = utility.nextNonXmlWhitespaceCharIndexAfter(src[i..], i);
         tt.reset(src[i..]).unwrap() catch unreachable;
-        if (tt.next()) |tok| switch (tok.info) {
-            .err => debug.todo("Implement 'err' branch."),
-            .comment_start => debug.todo("Implement 'comment_start' branch."),
-            .cdata_start => debug.todo("Implement 'cdata_start' branch."),
-            .pi_start => debug.todo("Implement 'pi_start' branch."),
-            .elem_open_start => debug.todo("Implement 'elem_open_start' branch."),
-            .elem_close_start => debug.todo("Implement 'elem_close_start' branch."),
+        if (tt.next()) |start_tag_tok| switch (start_tag_tok.info) {
+            .err => todo("Implement 'err' branch."),
 
-            else => if (@import("builtin").mode == .Debug) {
-                const longest_tok_name = comptime @tagName(std.enums.values(TagTokenizer.Tok.Id)[
-                    std.sort.argMax(
-                        TagTokenizer.Tok.Id,
-                        std.enums.values(TagTokenizer.Tok.Id),
-                        void{},
-                        struct {
-                            fn lessThan(_: void, lhs: TagTokenizer.Tok.Id, rhs: TagTokenizer.Tok.Id) bool {
-                                return mem.lessThan(u8, @tagName(lhs), @tagName(rhs));
-                            }
-                        }.lessThan,
-                    ).?
-                ]);
-                const format = "Didnt expect tag token '{s}'.";
-                var buf: [std.fmt.count(format, .{longest_tok_name})]u8 = undefined;
-                @panic(std.fmt.bufPrint(&buf, format, .{@tagName(tok.info)}) catch unreachable);
-            } else unreachable,
-        } else break :tokenization;
+            .comment_start => {
+                const next_tag_tok = tt.next() orelse todo("Implement this branch.");
+                const last_tag_tok = tt.next() orelse todo("Implement this branch.");
+
+                if (next_tag_tok.info != .comment_text) todo("Implement this branch.");
+                if (last_tag_tok.info != .comment_end) todo("Implement this branch.");
+
+                const len = len: {
+                    var len: usize = 0;
+                    len += start_tag_tok.expectedSlice().?.len;
+                    len += next_tag_tok.info.comment_text.len;
+                    len += last_tag_tok.expectedSlice().?.len;
+                    break :len len;
+                };
+                suspend ts.tok.* = Tok.init(i, .comment, .{ .len = len });
+                i += len;
+            },
+
+            .cdata_start => todo("Implement 'cdata_start' branch."),
+            .pi_start => todo("Implement 'pi_start' branch."),
+            .elem_open_start => todo("Implement 'elem_open_start' branch."),
+            .elem_close_start => todo("Implement 'elem_close_start' branch."),
+
+            else => didNotExpectTagToken(start_tag_tok.info),
+        } else todo("Implement this branch");
+
+        break :tokenization;
     }
 
     while (true) {
@@ -108,9 +113,19 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     }
 }
 
+fn didNotExpectTagToken(tag_tok: TagTokenizer.Tok.Id) noreturn {
+    if (@import("builtin").mode != .Debug)
+        unreachable
+    else {
+        const format = "Didnt expect tag token '{s}'.\n";
+        var buf: [std.fmt.count(format, .{utility.longestEnumName(TagTokenizer.Tok.Id)})]u8 = undefined;
+        @panic(std.fmt.bufPrint(&buf, format, .{@tagName(tag_tok)}) catch unreachable);
+    }
+}
+
 const tests = struct {
     const TestTokenStream = struct {
-        ts: TagTokenizer = .{},
+        ts: TokenStream = .{},
         src: []const u8 = &.{},
 
         fn reset(test_ts: *TestTokenStream, src: []const u8) validate_slice.ValidateSliceResult {
@@ -132,5 +147,6 @@ const tests = struct {
 test {
     var ts = tests.TestTokenStream{};
 
-    ts.reset("<?xml version=\"1.0\" encoding=\"UTF-8\"?>").unwrap() catch unreachable;
+    ts.reset("<!-- foo -->").unwrap() catch unreachable;
+    debug.print("\n{}\n", .{ts.next()});
 }

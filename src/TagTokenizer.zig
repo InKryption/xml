@@ -123,6 +123,7 @@ pub const Tok = struct {
     };
 
     pub fn slice(tok: Tok, src: []const u8) []const u8 {
+        assert(tok.info != .err);
         const start = tok.index;
         return switch (tok.info) {
             .err => unreachable,
@@ -181,6 +182,22 @@ pub const Tok = struct {
         };
     }
 };
+
+pub fn fmtTok(tok: Tok, src: []const u8) std.fmt.Formatter(formatTok) {
+    return .{ .data = .{ .tok = tok, .src = src } };
+}
+
+pub const FormattableTok = struct { tok: Tok, src: []const u8 };
+pub fn formatTok(
+    value: FormattableTok,
+    comptime format: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+    _ = format;
+    try writer.writeAll(value.tok.slice(value.src));
+}
 
 fn tokenize(tt: *TagTokenizer, src: []const u8) void {
     var i: usize = 0;
@@ -749,6 +766,17 @@ const tests = struct {
         };
     };
 };
+
+test "Tok Format" {
+    var tt = tests.TestTagTokenizer{};
+
+    tt.reset("<?abc d?>").unwrap() catch unreachable;
+    try testing.expectFmt("<?", "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try testing.expectFmt("abc", "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try testing.expectFmt("d", "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try testing.expectFmt("?>", "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try testing.expectEqual(@as(?Tok, null), tt.next());
+}
 
 test "TagTokenizer Empty" {
     var tt = tests.TestTagTokenizer{};

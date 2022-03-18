@@ -99,7 +99,7 @@ pub fn longestEnumName(comptime E: type) ?E {
     const values = std.enums.values(E);
     const lessThan = struct {
         fn lessThan(_: void, lhs: E, rhs: E) bool {
-            return mem.lessThan(u8, @tagName(lhs), @tagName(rhs));
+            return @tagName(lhs).len < @tagName(rhs).len;
         }
     }.lessThan;
     const max_index = std.sort.argMax(E, values, void{}, lessThan) orelse return null;

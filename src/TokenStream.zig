@@ -172,9 +172,9 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
 
                     const len = len: {
                         var len: usize = 0;
-                        len += start_tag_tok.expectedSlice().?.len;
+                        len += start_tag_tok.info.cannonicalSlice().?.len;
                         len += next_tag_tok.info.comment_text.len;
-                        len += last_tag_tok.expectedSlice().?.len;
+                        len += last_tag_tok.info.cannonicalSlice().?.len;
                         break :len len;
                     };
                     suspend ts.tok.* = Tok.init(i, .comment, .{ .len = len });

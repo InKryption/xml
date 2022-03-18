@@ -111,6 +111,41 @@ pub const Tok = struct {
 
         pub const Err = struct { code: Error };
         pub const Len = struct { len: usize };
+
+        pub fn cannonicalSlice(tag: std.meta.Tag(Info)) ?[]const u8 {
+            return switch (tag) {
+                .err => null,
+
+                .comment_start => "<!--",
+                .comment_text => null,
+                .comment_end => "-->",
+
+                .cdata_start => "<![CDATA[",
+                .cdata_text => null,
+                .cdata_end => "]]>",
+
+                .pi_start => "<?",
+                .pi_target => null,
+                .pi_tok => null,
+                .pi_str => null,
+                .pi_end => "?>",
+
+                .elem_open_start => "<",
+                .elem_close_start => "</",
+                .elem_close_inline => "/>",
+                .elem_tag_end => ">",
+                .elem_tag_name => null,
+
+                .attr_name => null,
+                .attr_eql => "=",
+                .attr_quote => null,
+                .attr_val_text => null,
+
+                .attr_val_entref_start => "&",
+                .attr_val_entref_id => null,
+                .attr_val_entref_end => ";",
+            };
+        }
     };
 
     pub fn slice(tok: Tok, src: []const u8) []const u8 {
@@ -152,35 +187,6 @@ pub const Tok = struct {
             .attr_val_entref_start => "&".len,
             .attr_val_entref_id => |attr_val_entref_id| attr_val_entref_id.len,
             .attr_val_entref_end => ";".len,
-        };
-    }
-
-    pub fn expectedSlice(tok: Tok) ?[]const u8 {
-        return switch (tok.info) {
-            .err => null,
-            .comment_start => "<!--",
-            .comment_text => null,
-            .comment_end => "-->",
-            .cdata_start => "<![CDATA[",
-            .cdata_text => null,
-            .cdata_end => "]]>",
-            .pi_start => "<?",
-            .pi_target => null,
-            .pi_tok => null,
-            .pi_str => null,
-            .pi_end => "?>",
-            .elem_open_start => "<",
-            .elem_close_start => "</",
-            .elem_close_inline => "/>",
-            .elem_tag_end => ">",
-            .elem_tag_name => null,
-            .attr_name => null,
-            .attr_eql => "=",
-            .attr_quote => null,
-            .attr_val_text => null,
-            .attr_val_entref_start => "&",
-            .attr_val_entref_id => null,
-            .attr_val_entref_end => ";",
         };
     }
 };
@@ -608,7 +614,7 @@ const tests = struct {
         fn expectPiStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.pi_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectPiTarget(test_tt: *TestTagTokenizer, name: []const u8) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -628,13 +634,13 @@ const tests = struct {
         fn expectPiEnd(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.pi_end, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
 
         fn expectCommentStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.comment_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectCommentText(test_tt: *TestTagTokenizer, text: []const u8) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -644,13 +650,13 @@ const tests = struct {
         fn expectCommentEnd(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.comment_end, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
 
         fn expectCDataStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.cdata_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectCDataText(test_tt: *TestTagTokenizer, text: []const u8) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -660,28 +666,28 @@ const tests = struct {
         fn expectCDataEnd(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.cdata_end, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
 
         fn expectElemOpenStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.elem_open_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectElemCloseStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.elem_close_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectElemCloseInline(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.elem_close_inline, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectElemTagEnd(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.elem_tag_end, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectElemTagName(test_tt: *TestTagTokenizer, name: []const u8) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -697,7 +703,7 @@ const tests = struct {
         fn expectAttrEql(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.attr_eql, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectAttrQuote(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -714,7 +720,7 @@ const tests = struct {
         fn expectAttrValEntrefStart(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.attr_val_entref_start, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
         fn expectAttrValEntrefId(test_tt: *TestTagTokenizer, id: []const u8) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
@@ -724,7 +730,7 @@ const tests = struct {
         fn expectAttrValEntrefEnd(test_tt: *TestTagTokenizer) !void {
             const tok = test_tt.next() orelse return error.TestExpectedEqual;
             try std.testing.expectEqual(Tok.Id.attr_val_entref_end, tok.info);
-            try std.testing.expectEqualStrings(tok.expectedSlice().?, tok.slice(test_tt.src));
+            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
         }
 
         fn expectErr(test_tt: *TestTagTokenizer, err: TagTokenizer.Error) !void {

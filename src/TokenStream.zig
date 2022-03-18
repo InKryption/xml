@@ -160,33 +160,35 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
 
         while (true) {
             tag_tokenizer.reset(src[i..]).unwrap() catch unreachable;
-            if (tag_tokenizer.next()) |start_tag_tok| switch (start_tag_tok.info) {
-                .err => std.debug.todo("Implement 'err' branch."),
+            if (tag_tokenizer.next()) |start_tag_tok| {
+                switch (start_tag_tok.info) {
+                    .err => std.debug.todo("Implement 'err' branch."),
 
-                .comment_start => {
-                    const next_tag_tok = tag_tokenizer.next() orelse std.debug.todo("Implement this branch.");
-                    const last_tag_tok = tag_tokenizer.next() orelse std.debug.todo("Implement this branch.");
+                    .comment_start => {
+                        const next_tag_tok = tag_tokenizer.next() orelse std.debug.todo("Handle no token following comment_start.");
+                        if (next_tag_tok.info != .comment_text) std.debug.todo("Handle non-comment_text token following comment_start.");
 
-                    if (next_tag_tok.info != .comment_text) std.debug.todo("Implement this branch.");
-                    if (last_tag_tok.info != .comment_end) std.debug.todo("Implement this branch.");
+                        const last_tag_tok = tag_tokenizer.next() orelse std.debug.todo("Handle no token following comment_text.");
+                        if (last_tag_tok.info != .comment_end) std.debug.todo("Handle non-comment_end token following commtent_text.");
 
-                    const len = len: {
-                        var len: usize = 0;
-                        len += start_tag_tok.info.cannonicalSlice().?.len;
-                        len += next_tag_tok.info.comment_text.len;
-                        len += last_tag_tok.info.cannonicalSlice().?.len;
-                        break :len len;
-                    };
-                    suspend ts.tok.* = Tok.init(i, .comment, .{ .len = len });
-                    i += len;
-                },
+                        const len = len: {
+                            var len: usize = 0;
+                            len += start_tag_tok.info.cannonicalSlice().?.len;
+                            len += next_tag_tok.info.comment_text.len;
+                            len += last_tag_tok.info.cannonicalSlice().?.len;
+                            break :len len;
+                        };
+                        suspend ts.tok.* = Tok.init(i, .comment, .{ .len = len });
+                        i += len;
+                    },
 
-                .cdata_start => std.debug.todo("Implement 'cdata_start' branch."),
-                .pi_start => std.debug.todo("Implement 'pi_start' branch."),
-                .elem_open_start => std.debug.todo("Implement 'elem_open_start' branch."),
-                .elem_close_start => std.debug.todo("Implement 'elem_close_start' branch."),
+                    .cdata_start => std.debug.todo("Implement 'cdata_start' branch."),
+                    .pi_start => std.debug.todo("Implement 'pi_start' branch."),
+                    .elem_open_start => std.debug.todo("Implement 'elem_open_start' branch."),
+                    .elem_close_start => std.debug.todo("Implement 'elem_close_start' branch."),
 
-                else => didNotExpectTagToken(start_tag_tok.info),
+                    else => didNotExpectTagToken(start_tag_tok.info),
+                }
             } else std.debug.todo("Implement this branch");
         }
 

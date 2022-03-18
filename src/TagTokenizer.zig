@@ -777,11 +777,13 @@ test "Tok Format" {
     var tt = tests.TestTagTokenizer{};
 
     tt.reset("<?abc d?>").unwrap() catch unreachable;
-    try std.testing.expectFmt("<?", "{s}", .{fmtTok(tt.next().?, tt.src)});
+    // zig fmt: off
+    try std.testing.expectFmt("<?",  "{s}", .{fmtTok(tt.next().?, tt.src)});
     try std.testing.expectFmt("abc", "{s}", .{fmtTok(tt.next().?, tt.src)});
-    try std.testing.expectFmt("d", "{s}", .{fmtTok(tt.next().?, tt.src)});
-    try std.testing.expectFmt("?>", "{s}", .{fmtTok(tt.next().?, tt.src)});
-    try std.testing.expectEqual(@as(?Tok, null), tt.next());
+    try std.testing.expectFmt("d",   "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try std.testing.expectFmt("?>",  "{s}", .{fmtTok(tt.next().?, tt.src)});
+    try tt.expectNull();
+    // zig fmt: on
 }
 
 test "TagTokenizer Empty" {

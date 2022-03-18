@@ -251,7 +251,7 @@ const tests = struct {
     };
 };
 
-test {
+test "TokenStream Lone Comment Token" {
     var ts = tests.TestTokenStream{};
 
     ts.reset("<!-- foo -->").unwrap() catch unreachable;

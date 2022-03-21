@@ -234,6 +234,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
         i += tok_len;
         break :depth 1;
     } else 0;
+
     body_tokenization: while (depth != 0) {
         continue :body_tokenization;
     }

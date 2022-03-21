@@ -89,6 +89,15 @@ pub const Tok = struct {
 
             pub const Name = struct { index: usize, len: usize };
         };
+
+        pub fn isAttrVal(tok: Tok.Id) bool {
+            return switch (tok) {
+                .attr_val_text,
+                .attr_val_entref,
+                => true,
+                else => false,
+            };
+        }
     };
 
     pub fn slice(tok: Tok, src: []const u8) []const u8 {
@@ -128,6 +137,12 @@ pub const Tok = struct {
         const start = tok.info.elem_close.name.index;
         const end = start + tok.info.elem_close.name.len;
         return src[start..end];
+    }
+
+    pub fn elemEntrefId(tok: Tok, src: []const u8) ?[]const u8 {
+        if (tok.info != .attr_val_entref) return null;
+        const whole = tok.slice(src);
+        return whole["&".len .. whole.len - ";".len];
     }
 
     pub fn len(tok: Tok) usize {
@@ -232,7 +247,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                 std.debug.assert(tag_tokenizer.next() == null);
             },
             .cdata_start => if (depth == 0) std.debug.todo("Emit error.") else std.debug.todo("Do this."),
-            .elem_open_start => {
+            .elem_open_start => tokenize_elem_open: {
                 depth += 1;
 
                 const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
@@ -241,28 +256,32 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                 const elem_open = Tok.init(i, .elem_open, .{ .len = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len });
                 suspend ts.emitResult(i, .elem_open, .{ .len = elem_open.info.elem_open.len });
 
-                const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                switch (next_tag.info) {
-                    .attr_name => std.debug.todo("Do this."),
-                    .elem_close_inline => {
-                        depth -= 1;
+                while (true) {
+                    const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    switch (next_tag.info) {
+                        .attr_name => std.debug.todo("Do this."),
+                        .elem_close_inline => {
+                            depth -= 1;
 
-                        const len = next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                        suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
-                            .index = elem_open.index + "<".len,
-                            .len = elem_open.info.elem_open.len - 1,
-                        } });
+                            const len = next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                            suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                                .index = elem_open.index + "<".len,
+                                .len = elem_open.info.elem_open.len - 1,
+                            } });
 
-                        i += len;
+                            i += len;
 
-                        std.debug.assert(tag_tokenizer.next() == null);
-                        if (depth == 0) break :tokenization;
-                    },
-                    .elem_tag_end => {
-                        i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                        std.debug.assert(tag_tokenizer.next() == null);
-                    },
-                    else => unreachable,
+                            std.debug.assert(tag_tokenizer.next() == null);
+                            if (depth == 0) break :tokenization;
+                            break :tokenize_elem_open;
+                        },
+                        .elem_tag_end => {
+                            i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                            std.debug.assert(tag_tokenizer.next() == null);
+                            break :tokenize_elem_open;
+                        },
+                        else => unreachable,
+                    }
                 }
             },
             .elem_close_start => if (depth == 0) std.debug.todo("Emit error.") else {
@@ -362,6 +381,27 @@ const TestTokenStream = struct {
         const tok = test_ts.next() orelse return error.TestExpectedEqual;
         try std.testing.expectEqual(Tok.Id.elem_close, tok.info);
         try std.testing.expectEqualStrings(name, tok.elemCloseName(test_ts.src).?);
+    }
+
+    fn expectAttrName(test_ts: *TestTokenStream, name: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_name, tok.info);
+        try std.testing.expectEqualStrings(name, tok.slice(test_ts.src));
+    }
+    fn expectAttrValText(test_ts: *TestTokenStream, text: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_text, tok.info);
+        try std.testing.expectEqualStrings(text, tok.slice(test_ts.src));
+    }
+    fn expectAttrValEntref(test_ts: *TestTokenStream, entref_id: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_entref, tok.info);
+        try std.testing.expectEqualStrings(entref_id, tok.elemEntrefId(test_ts.src).?);
+
+        const expected_slice = try std.mem.concat(std.testing.allocator, u8, &.{ "&", entref_id, ";" });
+        defer std.testing.allocator.free(expected_slice);
+
+        try std.testing.expectEqualStrings(expected_slice, tok.slice(test_ts.src));
     }
 
     fn expectWhitespace(test_ts: *TestTokenStream, whitespace: []const u8) !void {
@@ -501,5 +541,16 @@ test "TokenStream Comment & PI" {
     try ts.expectPiStart("foo");
     try ts.expectComment("bar");
     try ts.expectPiStart("baz");
+    try ts.expectNull();
+}
+
+test "Element & Attributes" {
+    var ts = TestTokenStream{};
+
+    ts.reset("<foo bar = 'baz'/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValText("baz");
+    try ts.expectElemClose("foo");
     try ts.expectNull();
 }

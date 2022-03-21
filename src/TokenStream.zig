@@ -98,6 +98,17 @@ pub const Tok = struct {
                 else => false,
             };
         }
+
+        /// Returns true for `pi_start`, `pi_tok`, and `pi_str`
+        pub fn isPi(self: Tok.Id) bool {
+            return switch (self) {
+                .pi_start,
+                .pi_tok,
+                .pi_str,
+                => true,
+                else => false,
+            };
+        }
     };
 
     pub fn slice(tok: Tok, src: []const u8) []const u8 {

@@ -65,6 +65,8 @@ pub const Tok = struct {
 
         /// indicates '<![CDATA[{text}]]>'
         cdata: Len,
+        /// indicates '{.}+' in between 'elem_open' and 'elem_close' (where the latter is not an inline close).
+        text: Len,
 
         /// indicates '<{name}'
         elem_open: Len,
@@ -123,120 +125,172 @@ pub const Tok = struct {
 
     pub fn elemCloseName(tok: Tok, src: []const u8) ?[]const u8 {
         if (tok.info != .elem_close) return null;
-        const start = tok.info.elem_close.name_index;
-        const end = start + tok.info.elem_close.name_len;
+        const start = tok.info.elem_close.name.index;
+        const end = start + tok.info.elem_close.name.len;
         return src[start..end];
     }
 
     pub fn len(tok: Tok) usize {
         return switch (tok.info) {
-            .err => unreachable,
-            .whitespace => |whitespace| whitespace.len,
-            .pi_start => |pi_start| pi_start.len,
-            .pi_tok => |pi_tok| pi_tok.len,
-            .pi_str => |pi_str| pi_str.len,
-            .comment => |comment| comment.len,
-            .cdata => |cdata| cdata.len,
-            .elem_open => |elem_open| elem_open.len,
-            .elem_close => |elem_close| elem_close.len,
-            .attr_name => |attr_name| attr_name.len,
-            .attr_val_text => |attr_val_text| attr_val_text.len,
+            // zig fmt: off
+            .err             => unreachable,
+            .whitespace      => |whitespace|      whitespace.len,
+            .pi_start        => |pi_start|        pi_start.len,
+            .pi_tok          => |pi_tok|          pi_tok.len,
+            .pi_str          => |pi_str|          pi_str.len,
+            .comment         => |comment|         comment.len,
+            .cdata           => |cdata|           cdata.len,
+            .text            => |text|            text.len,
+            .elem_open       => |elem_open|       elem_open.len,
+            .elem_close      => |elem_close|      elem_close.len,
+            .attr_name       => |attr_name|       attr_name.len,
+            .attr_val_text   => |attr_val_text|   attr_val_text.len,
             .attr_val_entref => |attr_val_entref| attr_val_entref.len,
+            // zig fmt: on
         };
     }
 };
 
 fn tokenize(ts: *TokenStream, src: []const u8) void {
     var i: usize = 0;
-    var tag_tokenizer: TagTokenizer = .{};
+    var tag_tokenizer = TagTokenizer{};
     suspend {}
 
-    const first_elem_open_len: ?usize = prolog_tokenization: while (true) {
-        i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
-        tag_tokenizer.resetUnchecked(src[i..]);
+    _ = ts;
+    _ = src;
+    _ = i;
 
-        if (tag_tokenizer.next()) |start_tag_tok| {
-            switch (start_tag_tok.info) {
-                .pi_open => {
-                    tokenize_pi: {
-                        const pi_target = tag_tokenizer.next() orelse std.debug.todo("Error here.");
-                        if (pi_target.info != .pi_target) std.debug.todo("Error here.");
+    var depth: usize = 0;
+    tokenization: while (true) {
+        if (depth == 0) {
+            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+        } else {
+            if (i == src.len) {
+                std.debug.todo("Emit error.");
+            } else if (src[i] != '<') {
+                const start = i;
 
-                        const len: usize = pi_target.index + pi_target.info.pi_target.len;
-                        suspend ts.emitResult(i, .pi_start, .{ .len = len });
+                i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
 
-                        break :tokenize_pi;
-                    }
+                if (src[i] == '<') {
+                    suspend ts.emitResult(start, .whitespace, .{ .len = i - start });
+                } else {
+                    while (i < src.len) {
+                        if (src[i] == '<') break;
+                        i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
+                    } else std.debug.todo("Emit error.");
 
-                    while (tag_tokenizer.next()) |pi_tok_str_end| {
-                        switch (pi_tok_str_end.info) {
-                            .pi_tok => |pi_tok| {
-                                const len: usize = pi_tok.len;
-                                suspend ts.emitResult(i + pi_tok_str_end.index, .pi_tok, .{ .len = len });
-                            },
-                            .pi_str => |pi_str| {
-                                const len: usize = pi_str.len;
-                                suspend ts.emitResult(i + pi_tok_str_end.index, .pi_str, .{ .len = len });
-                            },
-                            .pi_close => {
-                                i += pi_tok_str_end.index + pi_tok_str_end.info.cannonicalSlice().?.len;
-                                continue :prolog_tokenization;
-                            },
-                            else => std.debug.todo("Error here."),
-                        }
-                    } else std.debug.todo("Error here.");
-                },
-                .pi_target,
-                .pi_tok,
-                .pi_str,
-                .pi_close,
-                => unreachable,
-
-                .comment_start => {
-                    const comment_text = tag_tokenizer.next() orelse std.debug.todo("Error here.");
-                    if (comment_text.info != .comment_text) std.debug.todo("Error here.");
-
-                    const comment_end = tag_tokenizer.next() orelse std.debug.todo("Error here.");
-                    if (comment_end.info != .comment_end) std.debug.todo("Error here.");
-
-                    const len: usize = comment_end.index + comment_end.info.cannonicalSlice().?.len;
-                    suspend ts.emitResult(i, .comment, .{ .len = len });
-                    i += len;
-                },
-                .comment_text,
-                .comment_end,
-                => unreachable,
-
-                .cdata_start => std.debug.todo("Error here."),
-                .cdata_text,
-                .cdata_end,
-                => unreachable,
-
-                .elem_open_start => {
-                    const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Error here.");
-                    if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Error here.");
-
-                    const len: usize = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len;
-                    break :prolog_tokenization @as(?usize, len);
-                },
-                .elem_close_start => std.debug.todo("Error here."),
-                .elem_close_inline => unreachable,
-                .elem_tag_end => unreachable,
-                .elem_tag_name => unreachable,
-
-                else => std.debug.todo("Do the rest"),
+                    suspend ts.emitResult(start, .text, .{ .len = i - start });
+                }
             }
-        } else break :prolog_tokenization @as(?usize, null);
-    } else unreachable;
+        }
 
-    var depth: usize = if (first_elem_open_len) |tok_len| depth: {
-        suspend ts.emitResult(i, .elem_open, .{ .len = tok_len });
-        i += tok_len;
-        break :depth 1;
-    } else 0;
+        if (depth == 0 and i == src.len) {
+            break :tokenization;
+        } else if (i == src.len) {
+            std.debug.todo("Emit error.");
+        } else if (src[i] != '<') {
+            std.debug.todo("Emit error");
+        }
 
-    body_tokenization: while (depth != 0) {
-        continue :body_tokenization;
+        tag_tokenizer.resetUnchecked(src[i..]);
+        if (tag_tokenizer.next()) |first_tag| switch (first_tag.info) {
+            .pi_open => {
+                const pi_target = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (pi_target.info != .pi_target) std.debug.todo("Emit error.");
+
+                suspend ts.emitResult(i, .pi_start, .{ .len = pi_target.index + pi_target.info.pi_target.len });
+
+                while (tag_tokenizer.next()) |pi_instr| {
+                    switch (pi_instr.info) {
+                        .pi_tok => {
+                            suspend ts.emitResult(i + pi_instr.index, .pi_tok, .{ .len = pi_instr.info.pi_tok.len });
+                        },
+                        .pi_str => {
+                            suspend ts.emitResult(i + pi_instr.index, .pi_str, .{ .len = pi_instr.info.pi_str.len });
+                        },
+                        .pi_close => {
+                            i += pi_instr.index + pi_instr.info.cannonicalSlice().?.len;
+                            std.debug.assert(tag_tokenizer.next() == null);
+                            break;
+                        },
+                        else => unreachable,
+                    }
+                } else std.debug.todo("Emit error.");
+            },
+            .comment_start => {
+                const comment_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (comment_text.info != .comment_text) std.debug.todo("Emit error.");
+
+                const comment_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (comment_end.info != .comment_end) std.debug.todo("Emit error.");
+
+                const len: usize = comment_end.index + comment_end.info.cannonicalSlice().?.len;
+                suspend ts.emitResult(i, .comment, .{ .len = len });
+                i += len;
+
+                std.debug.assert(tag_tokenizer.next() == null);
+            },
+            .cdata_start => if (depth == 0) std.debug.todo("Emit error.") else std.debug.todo("Do this."),
+            .elem_open_start => {
+                depth += 1;
+
+                const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
+
+                const elem_open = Tok.init(i, .elem_open, .{ .len = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len });
+                suspend ts.emitResult(i, .elem_open, .{ .len = elem_open.info.elem_open.len });
+
+                const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                switch (next_tag.info) {
+                    .attr_name => std.debug.todo("Do this."),
+                    .elem_close_inline => {
+                        depth -= 1;
+
+                        const len = next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                        suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                            .index = elem_open.index + "<".len,
+                            .len = elem_open.info.elem_open.len - 1,
+                        } });
+
+                        i += len;
+
+                        std.debug.assert(tag_tokenizer.next() == null);
+                        if (depth == 0) break :tokenization;
+                    },
+                    .elem_tag_end => {
+                        i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                        std.debug.assert(tag_tokenizer.next() == null);
+                    },
+                    else => unreachable,
+                }
+            },
+            .elem_close_start => if (depth == 0) std.debug.todo("Emit error.") else {
+                depth -= 1;
+
+                const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
+
+                const elem_tag_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (elem_tag_end.info != .elem_tag_end) std.debug.todo("Emit error.");
+
+                const len = elem_tag_end.index + elem_tag_end.info.cannonicalSlice().?.len;
+                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                    .index = i + elem_tag_name.index,
+                    .len = elem_tag_name.info.elem_tag_name.len,
+                } });
+
+                std.debug.assert(tag_tokenizer.next() == null);
+                if (depth == 0) break :tokenization;
+            },
+            .err => |err| switch (err.code) {
+                error.ExpectedLeftAngleBracket => std.debug.todo("Emit error."),
+                else => unreachable,
+            },
+            else => unreachable,
+        } else if (depth == 0) {
+            break :tokenization;
+        } else unreachable;
     }
 
     while (true) {
@@ -293,6 +347,42 @@ const TestTokenStream = struct {
         try std.testing.expectEqualStrings(expected_slice, tok.slice(test_ts.src));
     }
 
+    fn expectElemOpen(test_ts: *TestTokenStream, name: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_open, tok.info);
+        try std.testing.expectEqualStrings(name, tok.elemOpenName(test_ts.src).?);
+
+        const expected_slice = try std.mem.concat(std.testing.allocator, u8, &.{ "<", name });
+        defer std.testing.allocator.free(expected_slice);
+
+        try std.testing.expectEqualStrings(expected_slice, tok.slice(test_ts.src));
+    }
+
+    fn expectElemClose(test_ts: *TestTokenStream, name: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_close, tok.info);
+        try std.testing.expectEqualStrings(name, tok.elemCloseName(test_ts.src).?);
+    }
+
+    fn expectWhitespace(test_ts: *TestTokenStream, whitespace: []const u8) !void {
+        validate_whitespace: {
+            for (whitespace) |char| switch (char) {
+                ' ', '\t', '\n', '\r' => continue,
+                else => @panic("Non-space character found in 'whitespace' argument to expectWhitespace.\n"),
+            };
+            break :validate_whitespace;
+        }
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.whitespace, tok.info);
+        try std.testing.expectEqualStrings(whitespace, tok.slice(test_ts.src));
+    }
+
+    fn expectText(test_ts: *TestTokenStream, text: []const u8) !void {
+        const tok = test_ts.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.text, tok.info);
+        try std.testing.expectEqualStrings(text, tok.slice(test_ts.src));
+    }
+
     fn expectPiStart(test_ts: *TestTokenStream, name: []const u8) !void {
         const tok = test_ts.next() orelse return error.TestExpectedEqual;
         try std.testing.expectEqual(Tok.Id.pi_start, tok.info);
@@ -303,13 +393,11 @@ const TestTokenStream = struct {
 
         try std.testing.expectEqualStrings(expected_slice, tok.slice(test_ts.src));
     }
-
     fn expectPiTok(test_ts: *TestTokenStream, slice: []const u8) !void {
         const tok = test_ts.next() orelse return error.TestExpectedEqual;
         try std.testing.expectEqual(Tok.Id.pi_tok, tok.info);
         try std.testing.expectEqualStrings(slice, tok.slice(test_ts.src));
     }
-
     fn expectPiStr(test_ts: *TestTokenStream, text: []const u8) !void {
         const tok = test_ts.next() orelse return error.TestExpectedEqual;
         try std.testing.expectEqual(Tok.Id.pi_str, tok.info);
@@ -343,11 +431,34 @@ const TestTokenStream = struct {
 test "TokenStream Basic Usages" {
     var ts = TestTokenStream{};
 
-    ts.reset("<!-- foo --><?foo bar 'baz'?><!-- fizz -->").unwrap() catch unreachable;
+    ts.reset(
+        \\<!-- foo -->
+        \\<?foo bar 'baz'?>
+        \\<!-- fizz -->
+    ).unwrap() catch unreachable;
     try ts.expectComment(" foo ");
     try ts.expectPiStart("foo");
     try ts.expectPiTok("bar");
     try ts.expectPiStr("baz");
     try ts.expectComment(" fizz ");
+    try ts.expectNull();
+
+    // NOTE: note that whether the tags matched is not taken into account,
+    // only the depth.
+    ts.reset("<foo><bar/></baz>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectElemOpen("bar");
+    try ts.expectElemClose("bar");
+    try ts.expectElemClose("baz");
+    try ts.expectNull();
+
+    ts.reset(
+        \\<foo>
+        \\    bar
+        \\</foo>
+    ).unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectText("\n    bar\n");
+    try ts.expectElemClose("foo");
     try ts.expectNull();
 }

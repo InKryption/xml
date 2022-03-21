@@ -428,37 +428,78 @@ const TestTokenStream = struct {
     }
 };
 
-test "TokenStream Basic Usages" {
+test "TokenStream Emptiness" {
     var ts = TestTokenStream{};
 
-    ts.reset(
-        \\<!-- foo -->
-        \\<?foo bar 'baz'?>
-        \\<!-- fizz -->
-    ).unwrap() catch unreachable;
+    ts.reset("").unwrap() catch unreachable;
+    try ts.expectNull();
+
+    ts.reset("<empty/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("empty");
+    try ts.expectElemClose("empty");
+    try ts.expectNull();
+
+    ts.reset("<empty></empty>").unwrap() catch unreachable;
+    try ts.expectElemOpen("empty");
+    try ts.expectElemClose("empty");
+    try ts.expectNull();
+}
+
+test "TokenStream Comment & PI" {
+    var ts = TestTokenStream{};
+
+    ts.reset("<!-- foo -->").unwrap() catch unreachable;
     try ts.expectComment(" foo ");
+    try ts.expectNull();
+
+    ts.reset("<!-- foo --><!--bar-->").unwrap() catch unreachable;
+    try ts.expectComment(" foo ");
+    try ts.expectComment("bar");
+    try ts.expectNull();
+
+    ts.reset("<?foo?>").unwrap() catch unreachable;
+    try ts.expectPiStart("foo");
+    try ts.expectNull();
+
+    ts.reset("<?foo?><?bar ?>").unwrap() catch unreachable;
+    try ts.expectPiStart("foo");
+    try ts.expectPiStart("bar");
+    try ts.expectNull();
+
+    ts.reset("<?foo bar?>").unwrap() catch unreachable;
+    try ts.expectPiStart("foo");
+    try ts.expectPiTok("bar");
+    try ts.expectNull();
+
+    ts.reset("<?foo bar 'baz'?>").unwrap() catch unreachable;
     try ts.expectPiStart("foo");
     try ts.expectPiTok("bar");
     try ts.expectPiStr("baz");
-    try ts.expectComment(" fizz ");
     try ts.expectNull();
 
-    // NOTE: note that whether the tags matched is not taken into account,
-    // only the depth.
-    ts.reset("<foo><bar/></baz>").unwrap() catch unreachable;
-    try ts.expectElemOpen("foo");
-    try ts.expectElemOpen("bar");
-    try ts.expectElemClose("bar");
-    try ts.expectElemClose("baz");
+    ts.reset("<!--foo--><?bar?><!--baz-->").unwrap() catch unreachable;
+    try ts.expectComment("foo");
+    try ts.expectPiStart("bar");
+    try ts.expectComment("baz");
     try ts.expectNull();
 
-    ts.reset(
-        \\<foo>
-        \\    bar
-        \\</foo>
-    ).unwrap() catch unreachable;
-    try ts.expectElemOpen("foo");
-    try ts.expectText("\n    bar\n");
-    try ts.expectElemClose("foo");
+    ts.reset("<?foo?><!--bar--><?baz?>").unwrap() catch unreachable;
+    try ts.expectPiStart("foo");
+    try ts.expectComment("bar");
+    try ts.expectPiStart("baz");
+    try ts.expectNull();
+
+    // NOTE: whitespace in prolog is ignored.
+    // whitespace tokens are emitted if within an element (depth > 0)
+    ts.reset("<!--foo-->\n<?bar ?>\n<!--baz-->").unwrap() catch unreachable;
+    try ts.expectComment("foo");
+    try ts.expectPiStart("bar");
+    try ts.expectComment("baz");
+    try ts.expectNull();
+
+    ts.reset("<?foo?>\n<!--bar-->\n<?baz?>").unwrap() catch unreachable;
+    try ts.expectPiStart("foo");
+    try ts.expectComment("bar");
+    try ts.expectPiStart("baz");
     try ts.expectNull();
 }

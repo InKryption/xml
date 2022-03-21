@@ -167,6 +167,15 @@ pub const Tok = struct {
                 // zig fmt: on
             };
         }
+
+        pub fn isAttrQuote(self: Tok.Id) bool {
+            return switch (self) {
+                .attr_quote_single,
+                .attr_quote_double,
+                => true,
+                else => false,
+            };
+        }
     };
 
     pub fn slice(tok: Tok, src: []const u8) []const u8 {

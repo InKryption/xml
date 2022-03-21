@@ -182,10 +182,6 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     var tag_tokenizer = TagTokenizer{};
     suspend {}
 
-    _ = ts;
-    _ = src;
-    _ = i;
-
     var depth: usize = 0;
     tokenization: while (true) {
         if (depth == 0) {
@@ -270,11 +266,37 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                 while (true) {
                     const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
                     switch (next_tag.info) {
-                        .attr_name => std.debug.todo("Do this."),
+                        .attr_name => |attr_name| {
+                            const attr_eql = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                            if (attr_eql.info != .attr_eql) std.debug.todo("Emit error.");
+
+                            suspend ts.emitResult(i + next_tag.index, .attr_name, .{ .len = attr_name.len });
+
+                            const attr_quote = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                            if (!attr_quote.info.isAttrQuote()) std.debug.todo("Emit error.");
+
+                            while (tag_tokenizer.next()) |attr_val_or_quote| {
+                                if (attr_val_or_quote.info.isAttrQuote()) break;
+                                switch (attr_val_or_quote.info) {
+                                    .attr_val_text => {
+                                        suspend ts.emitResult(i + attr_val_or_quote.index, .attr_val_text, .{
+                                            .len = attr_val_or_quote.info.attr_val_text.len,
+                                        });
+                                    },
+
+                                    .attr_val_entref_start => std.debug.todo("Do this."),
+
+                                    .attr_quote_double,
+                                    .attr_quote_single,
+                                    => break,
+                                    else => unreachable,
+                                }
+                            } else std.debug.todo("Emit error.");
+                        },
                         .elem_close_inline => {
                             depth -= 1;
 
-                            const len = next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                            const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
                             suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
                                 .index = elem_open.index + "<".len,
                                 .len = elem_open.info.elem_open.len - 1,

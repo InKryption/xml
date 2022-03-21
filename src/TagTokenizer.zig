@@ -130,7 +130,7 @@ pub const Tok = struct {
         pub const Err = struct { code: Error };
         pub const Len = struct { len: usize };
 
-        pub fn cannonicalSlice(tag: std.meta.Tag(Info)) ?[]const u8 {
+        pub fn cannonicalSlice(tag: Tok.Id) ?[]const u8 {
             return switch (tag) {
                 // zig fmt: off
                 .err                   => null,

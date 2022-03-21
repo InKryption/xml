@@ -151,7 +151,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     var tag_tokenizer: TagTokenizer = .{};
     suspend {}
 
-    prolog_tokenization: while (true) {
+    const first_elem_open_len: ?usize = prolog_tokenization: while (true) {
         i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
         tag_tokenizer.resetUnchecked(src[i..]);
 
@@ -217,10 +217,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                     if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Error here.");
 
                     const len: usize = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len;
-                    suspend ts.emitResult(i, .elem_open, .{ .len = len });
-                    i += len;
-
-                    break :prolog_tokenization;
+                    break :prolog_tokenization @as(?usize, len);
                 },
                 .elem_close_start => std.debug.todo("Error here."),
                 .elem_close_inline => unreachable,
@@ -229,11 +226,16 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
 
                 else => std.debug.todo("Do the rest"),
             }
-        } else break :prolog_tokenization;
-    }
+        } else break :prolog_tokenization @as(?usize, null);
+    } else unreachable;
 
-    body_tokenization: while (true) {
-        break :body_tokenization;
+    var depth: usize = if (first_elem_open_len) |tok_len| depth: {
+        suspend ts.emitResult(i, .elem_open, .{ .len = tok_len });
+        i += tok_len;
+        break :depth 1;
+    } else 0;
+    body_tokenization: while (depth != 0) {
+        continue :body_tokenization;
     }
 
     while (true) {

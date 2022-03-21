@@ -851,7 +851,7 @@ const TestTagTokenizer = struct {
     };
 };
 
-test "Tok Format" {
+test "TagTokenizer Tok Format" {
     var tt = TestTagTokenizer{};
 
     tt.reset("<?abc d?>").unwrap() catch unreachable;

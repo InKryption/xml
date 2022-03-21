@@ -13,7 +13,23 @@ frame: @Frame(TagTokenizer.tokenize) = undefined,
 tok: *?Tok = undefined,
 
 pub const Error = error{
+    ExpectedLeftAngleBracket,
+    InvalidPiTargetStartChar,
+    ExpectedWhitespaceAfterPiTarget,
+    IncompleteBangToken,
+    IncompleteBangDashToken,
+    IncompleteCDataKeyword,
+    ExpectedElemCloseNameStartChar,
+    UnexpectedCharacterFollowingElemCloseName,
+    ExpectedElemOpenNameStartChar,
+    IncompleteElemCloseInlineTok,
+    ExpectedRightAngleBracket,
     InvalidCharacter,
+    ExpectedAttrEql,
+    ExpectedAttrQuote,
+    InvalidEntrefIdChar,
+    InvalidEntrefIdNameChar,
+    ExpectedEntrefSemicolon,
     InvalidDoubleDashInComment,
 };
 
@@ -58,15 +74,15 @@ pub const Tok = struct {
         err: Err,
 
         /// indicates '<?'
-        pi_start,
-        /// indicates the name following 'pi_start'
+        pi_open,
+        /// indicates the name following 'pi_open'
         pi_target: Len,
         /// indicates a non-string token following 'pi_target', 'pi_str', or 'pi_tok'
         pi_tok: Len,
         /// indicates a string following 'pi_target', 'pi_tok', or 'pi_str'
         pi_str: Len,
         /// indicates '?>'
-        pi_end,
+        pi_close,
 
         /// indicates '<!--'
         comment_start,
@@ -97,9 +113,11 @@ pub const Tok = struct {
         attr_name: Len,
         /// indicates '='
         attr_eql,
-        /// indicates '\"' or '\''
-        attr_quote,
-        /// indicates text following 'attr_quote' or 'attr_val_entref'
+        /// indicates '\''
+        attr_quote_single,
+        /// indicates '\"'
+        attr_quote_double,
+        /// indicates text following 'attr_quote_single', 'attr_quote_double' or 'attr_val_entref'
         attr_val_text: Len,
 
         /// indicates '&' within an attribute value
@@ -114,36 +132,39 @@ pub const Tok = struct {
 
         pub fn cannonicalSlice(tag: std.meta.Tag(Info)) ?[]const u8 {
             return switch (tag) {
-                .err => null,
+                // zig fmt: off
+                .err                   => null,
 
-                .comment_start => "<!--",
-                .comment_text => null,
-                .comment_end => "-->",
+                .comment_start         => "<!--",
+                .comment_text          => null,
+                .comment_end           => "-->",
 
-                .cdata_start => "<![CDATA[",
-                .cdata_text => null,
-                .cdata_end => "]]>",
+                .cdata_start           => "<![CDATA[",
+                .cdata_text            => null,
+                .cdata_end             => "]]>",
 
-                .pi_start => "<?",
-                .pi_target => null,
-                .pi_tok => null,
-                .pi_str => null,
-                .pi_end => "?>",
+                .pi_open               => "<?",
+                .pi_target             => null,
+                .pi_tok                => null,
+                .pi_str                => null,
+                .pi_close              => "?>",
 
-                .elem_open_start => "<",
-                .elem_close_start => "</",
-                .elem_close_inline => "/>",
-                .elem_tag_end => ">",
-                .elem_tag_name => null,
+                .elem_open_start       => "<",
+                .elem_close_start      => "</",
+                .elem_close_inline     => "/>",
+                .elem_tag_end          => ">",
+                .elem_tag_name         => null,
 
-                .attr_name => null,
-                .attr_eql => "=",
-                .attr_quote => null,
-                .attr_val_text => null,
+                .attr_name             => null,
+                .attr_eql              => "=",
+                .attr_quote_single     => "\'",
+                .attr_quote_double     => "\"",
+                .attr_val_text         => null,
 
                 .attr_val_entref_start => "&",
-                .attr_val_entref_id => null,
-                .attr_val_entref_end => ";",
+                .attr_val_entref_id    => null,
+                .attr_val_entref_end   => ";",
+                // zig fmt: on
             };
         }
     };
@@ -156,37 +177,41 @@ pub const Tok = struct {
     }
 
     pub fn len(tok: Tok) usize {
+        const cannonical_len: ?usize = if (tok.info.cannonicalSlice()) |cannonical| cannonical.len else null;
         return switch (tok.info) {
-            .err => unreachable,
+            // zig fmt: off
+            .err                   => unreachable,
 
-            .pi_start => "<?".len,
-            .pi_target => |pi_target| pi_target.len,
-            .pi_tok => |pi_tok| pi_tok.len,
-            .pi_str => |pi_str| pi_str.len,
-            .pi_end => "?>".len,
+            .pi_open               => cannonical_len.?,
+            .pi_target             => |pi_target| pi_target.len,
+            .pi_tok                => |pi_tok| pi_tok.len,
+            .pi_str                => |pi_str| pi_str.len,
+            .pi_close              => cannonical_len.?,
 
-            .comment_start => "<!--".len,
-            .comment_text => |comment_text| comment_text.len,
-            .comment_end => "-->".len,
+            .comment_start         => cannonical_len.?,
+            .comment_text          => |comment_text| comment_text.len,
+            .comment_end           => cannonical_len.?,
 
-            .cdata_start => "<![CDATA[".len,
-            .cdata_text => |cdata_text| cdata_text.len,
-            .cdata_end => "]]>".len,
+            .cdata_start           => cannonical_len.?,
+            .cdata_text            => |cdata_text| cdata_text.len,
+            .cdata_end             => cannonical_len.?,
 
-            .elem_open_start => "<".len,
-            .elem_close_start => "</".len,
-            .elem_close_inline => "/>".len,
-            .elem_tag_end => ">".len,
-            .elem_tag_name => |elem_tag_name| elem_tag_name.len,
+            .elem_open_start       => cannonical_len.?,
+            .elem_close_start      => cannonical_len.?,
+            .elem_close_inline     => cannonical_len.?,
+            .elem_tag_end          => cannonical_len.?,
+            .elem_tag_name         => |elem_tag_name| elem_tag_name.len,
 
-            .attr_name => |attr_name| attr_name.len,
-            .attr_eql => "=".len,
-            .attr_quote => "'".len,
-            .attr_val_text => |attr_val_text| attr_val_text.len,
+            .attr_name             => |attr_name| attr_name.len,
+            .attr_eql              => cannonical_len.?,
+            .attr_quote_single     => cannonical_len.?,
+            .attr_quote_double     => cannonical_len.?,
+            .attr_val_text         => |attr_val_text| attr_val_text.len,
 
-            .attr_val_entref_start => "&".len,
-            .attr_val_entref_id => |attr_val_entref_id| attr_val_entref_id.len,
-            .attr_val_entref_end => ";".len,
+            .attr_val_entref_start => cannonical_len.?,
+            .attr_val_entref_id    => |attr_val_entref_id| attr_val_entref_id.len,
+            .attr_val_entref_end   => cannonical_len.?,
+            // zig fmt: on
         };
     }
 };
@@ -212,32 +237,31 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
     tokenization: {
         if (i == src.len) break :tokenization;
         if (src[i] != '<') {
-            tt.setError(i, Error.InvalidCharacter);
+            tt.emitError(i, Error.ExpectedLeftAngleBracket);
             break :tokenization;
         }
 
         i += 1;
         if (i == src.len) {
-            suspend tt.setResult(0, .elem_open_start, {});
-
+            suspend tt.emitResult(0, .elem_open_start, {});
             break :tokenization;
         }
 
         switch (src[i]) {
             '?' => {
-                suspend tt.setResult(0, .pi_start, {});
+                suspend tt.emitResult(0, .pi_open, {});
 
                 i += 1;
                 if (i == src.len) break :tokenization;
 
                 tokenize_pi_target: {
                     i += utility.xmlNameStartCharLengthAt(src, i) orelse {
-                        tt.setError(i, Error.InvalidCharacter);
+                        tt.emitError(i, Error.InvalidPiTargetStartChar);
                         break :tokenization;
                     };
                     i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult("<?".len, .pi_target, .{ .len = i - "<?".len });
+                    suspend tt.emitResult("<?".len, .pi_target, .{ .len = i - "<?".len });
                     break :tokenize_pi_target;
                 }
 
@@ -245,11 +269,11 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     break :tokenization;
                 }
                 if (std.mem.startsWith(u8, src[i..], "?>")) {
-                    tt.setResult(i, .pi_end, {});
+                    tt.emitResult(i, .pi_close, {});
                     break :tokenization;
                 }
                 if (!utility.isXmlWhitespaceChar(src[i])) {
-                    tt.setError(i, Error.InvalidCharacter);
+                    tt.emitError(i, Error.ExpectedWhitespaceAfterPiTarget);
                     break :tokenization;
                 }
 
@@ -258,7 +282,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     if (i == src.len) break :tokenization;
 
                     if (std.mem.startsWith(u8, src[i..], "?>")) {
-                        tt.setResult(i, .pi_end, {});
+                        tt.emitResult(i, .pi_close, {});
                         break :tokenization;
                     }
                     switch (src[i]) {
@@ -272,7 +296,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             while (i < src.len) : (i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
                                 if (src[i] == @enumToInt(quote)) {
                                     i += 1;
-                                    suspend tt.setResult(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index });
+                                    suspend tt.emitResult(pi_str_start_index, .pi_str, .{ .len = i - pi_str_start_index });
                                     continue :get_tokens;
                                 }
                             }
@@ -281,7 +305,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             const pi_tok_start_index = i;
                             while (i < src.len) : (i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
                                 if (utility.isXmlWhitespaceChar(src[i]) or std.mem.startsWith(u8, src[i..], "?>")) {
-                                    suspend tt.setResult(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index });
+                                    suspend tt.emitResult(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index });
                                     continue :get_tokens;
                                 }
                             }
@@ -291,24 +315,30 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
             },
             '!' => {
                 i += 1;
-                if (i == src.len) break :tokenization;
+                if (i == src.len) {
+                    tt.emitError(0, Error.IncompleteBangToken);
+                    break :tokenization;
+                }
 
                 switch (src[i]) {
                     '-' => {
                         i += 1;
-                        if (i == src.len) break :tokenization;
+                        if (i == src.len) {
+                            tt.emitError(0, Error.IncompleteBangDashToken);
+                            break :tokenization;
+                        }
 
                         switch (src[i]) {
                             '-' => {
-                                suspend tt.setResult(0, .comment_start, {});
+                                suspend tt.emitResult(0, .comment_start, {});
 
                                 i += 1;
                                 if (i == src.len) break :tokenization;
                                 if (std.mem.startsWith(u8, src[i..], "--")) {
                                     if (i + "--".len >= src.len or src[i + "--".len] != '>')
-                                        tt.setError(i - "--".len, Error.InvalidDoubleDashInComment)
+                                        tt.emitError(i - "--".len, Error.InvalidDoubleDashInComment)
                                     else
-                                        tt.setResult("<!--".len, .comment_end, {});
+                                        tt.emitResult("<!--".len, .comment_end, {});
                                     break :tokenization;
                                 }
 
@@ -316,7 +346,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                     i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
 
                                     if (i == src.len or std.mem.startsWith(u8, src[i..], "--")) {
-                                        suspend tt.setResult("<!--".len, .comment_text, .{ .len = i - "<!--".len });
+                                        suspend tt.emitResult("<!--".len, .comment_text, .{ .len = i - "<!--".len });
                                         if (i == src.len) break :tokenization;
                                         break :seek_double_slash;
                                     }
@@ -326,15 +356,15 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 i += "--".len;
 
                                 if (i == src.len or src[i] != '>') {
-                                    tt.setError(i - "--".len, Error.InvalidDoubleDashInComment);
+                                    tt.emitError(i - "--".len, Error.InvalidDoubleDashInComment);
                                     break :tokenization;
                                 }
 
-                                tt.setResult(i - "--".len, .comment_end, {});
+                                tt.emitResult(i - "--".len, .comment_end, {});
                                 break :tokenization;
                             },
                             else => {
-                                tt.setError(i, Error.InvalidCharacter);
+                                tt.emitError(i, Error.IncompleteBangDashToken);
                                 break :tokenization;
                             },
                         }
@@ -342,78 +372,77 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     '[' => {
                         inline for ("CDATA[") |expected_char| {
                             i += 1;
-                            if (i == src.len) break :tokenization;
-                            if (src[i] != expected_char) {
-                                tt.setError(i, Error.InvalidCharacter);
+                            if (i == src.len or src[i] != expected_char) {
+                                tt.emitError(i, Error.IncompleteCDataKeyword);
                                 break :tokenization;
                             }
                         }
-                        suspend tt.setResult(0, .cdata_start, {});
+                        suspend tt.emitResult(0, .cdata_start, {});
 
                         i += 1;
                         if (i == src.len) break :tokenization;
                         if (std.mem.startsWith(u8, src[i..], "]]>")) {
-                            tt.setResult("<![CDATA[".len, .cdata_end, {});
+                            tt.emitResult("<![CDATA[".len, .cdata_end, {});
                             break :tokenization;
                         }
 
                         while (true) {
                             i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable;
                             if (i == src.len or std.mem.startsWith(u8, src[i..], "]]>")) {
-                                suspend tt.setResult("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len });
+                                suspend tt.emitResult("<![CDATA[".len, .cdata_text, .{ .len = i - "<![CDATA[".len });
                                 if (i == src.len) break :tokenization;
                                 break;
                             }
                         }
 
                         std.debug.assert(std.mem.startsWith(u8, src[i..], "]]>"));
-                        tt.setResult(i, .cdata_end, {});
+                        tt.emitResult(i, .cdata_end, {});
                         break :tokenization;
                     },
                     else => {
-                        tt.setError(i, Error.InvalidCharacter);
+                        tt.emitError(i, Error.IncompleteBangToken);
                         break :tokenization;
                     },
                 }
             },
             '/' => {
-                suspend tt.setResult(0, .elem_close_start, {});
+                suspend tt.emitResult(0, .elem_close_start, {});
 
                 tokenize_name: {
                     i += 1;
                     if (i == src.len) break :tokenization;
 
                     i += utility.xmlNameStartCharLengthAt(src, i) orelse {
-                        tt.setError(i, Error.InvalidCharacter);
+                        tt.emitError(i, Error.ExpectedElemCloseNameStartChar);
                         break :tokenization;
                     };
                     i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult("</".len, .elem_tag_name, .{ .len = i - "</".len });
+                    suspend tt.emitResult("</".len, .elem_tag_name, .{ .len = i - "</".len });
                     break :tokenize_name;
                 }
                 i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
 
                 if (i == src.len) break :tokenization;
                 if (src[i] != '>') {
-                    tt.setError(i, Error.InvalidCharacter);
+                    tt.emitError(i, Error.UnexpectedCharacterFollowingElemCloseName);
                     break :tokenization;
                 }
 
-                tt.setResult(i, .elem_tag_end, {});
+                tt.emitResult(i, .elem_tag_end, {});
                 break :tokenization;
             },
             else => {
-                suspend tt.setResult(0, .elem_open_start, {});
+                suspend tt.emitResult(0, .elem_open_start, {});
 
                 tokenize_name: {
                     i += utility.xmlNameStartCharLengthAt(src, i) orelse {
-                        tt.setError(i, Error.InvalidCharacter);
+                        tt.emitError(i, Error.ExpectedElemOpenNameStartChar);
                         break :tokenization;
                     };
                     i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                    suspend tt.setResult("<".len, .elem_tag_name, .{ .len = i - "<".len });
+                    suspend tt.emitResult("<".len, .elem_tag_name, .{ .len = i - "<".len });
                     break :tokenize_name;
                 }
 
@@ -423,44 +452,44 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
 
                     switch (src[i]) {
                         '>' => {
-                            tt.setResult(i, .elem_tag_end, {});
+                            tt.emitResult(i, .elem_tag_end, {});
                             break :tokenization;
                         },
                         '/' => {
                             if (i + 1 == src.len) {
-                                tt.setError(i, Error.InvalidCharacter);
+                                tt.emitError(i, Error.IncompleteElemCloseInlineTok);
                                 break :tokenization;
                             }
 
                             if (src[i + 1] != '>') {
-                                tt.setError(i, Error.InvalidCharacter);
+                                tt.emitError(i, Error.ExpectedRightAngleBracket);
                                 break :tokenization;
                             }
 
-                            tt.setResult(i, .elem_close_inline, {});
+                            tt.emitResult(i, .elem_close_inline, {});
                             break :tokenization;
                         },
                         else => {
                             tokenize_attr_name: {
                                 const attr_name_start_index = i;
                                 i += utility.xmlNameStartCharLengthAt(src, i) orelse {
-                                    tt.setError(i, Error.InvalidCharacter);
+                                    tt.emitError(i, Error.InvalidCharacter);
                                     break :tokenization;
                                 };
                                 i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                                suspend tt.setResult(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index });
+                                suspend tt.emitResult(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index });
                                 break :tokenize_attr_name;
                             }
 
                             i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
                             if (i == src.len) break :tokenization;
                             if (src[i] != '=') {
-                                tt.setError(i, Error.InvalidCharacter);
+                                tt.emitError(i, Error.ExpectedAttrEql);
                                 break :tokenization;
                             }
 
-                            suspend tt.setResult(i, .attr_eql, {});
+                            suspend tt.emitResult(i, .attr_eql, {});
 
                             i += 1;
                             i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
@@ -470,35 +499,24 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             const quote: QuoteType = switch (src[i]) {
                                 '\"', '\'' => @intToEnum(QuoteType, src[i]),
                                 else => {
-                                    tt.setError(i, Error.InvalidCharacter);
+                                    tt.emitError(i, Error.ExpectedAttrQuote);
                                     break :tokenization;
                                 },
                             };
 
-                            suspend tt.setResult(i, .attr_quote, {});
+                            suspend switch (quote) {
+                                .single => tt.emitResult(i, .attr_quote_single, {}),
+                                .double => tt.emitResult(i, .attr_quote_double, {}),
+                            };
 
                             i += 1;
 
                             get_attr_value: while (true) {
                                 if (i == src.len) break :tokenization;
-                                if (@enumToInt(quote) == src[i]) {
-                                    suspend tt.setResult(i, .attr_quote, {});
-
-                                    i += 1;
-                                    if (i == src.len) break :tokenization;
-                                    if (src[i] != '>' and
-                                        src[i] != '/' and
-                                        !utility.isXmlWhitespaceChar(src[i]))
-                                    {
-                                        tt.setError(i, Error.InvalidCharacter);
-                                        break :tokenization;
-                                    }
-
-                                    continue :get_attributes;
-                                }
+                                if (@enumToInt(quote) == src[i]) break :get_attr_value;
 
                                 if (src[i] == '&') {
-                                    suspend tt.setResult(i, .attr_val_entref_start, {});
+                                    suspend tt.emitResult(i, .attr_val_entref_start, {});
 
                                     const attr_entref_name_start_index = i;
                                     _ = attr_entref_name_start_index;
@@ -521,7 +539,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 'A'...'F',
                                                 => {},
                                                 else => {
-                                                    tt.setError(i, Error.InvalidCharacter);
+                                                    tt.emitError(i, Error.InvalidEntrefIdChar);
                                                     break :tokenization;
                                                 },
                                             }
@@ -534,27 +552,27 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 else => break,
                                             };
 
-                                            suspend tt.setResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
+                                            suspend tt.emitResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
                                         },
                                         else => {
                                             const entref_id_start_index = i;
                                             i += utility.xmlNameStartCharLengthAt(src, i) orelse {
-                                                tt.setError(i, Error.InvalidCharacter);
+                                                tt.emitError(i, Error.InvalidEntrefIdNameChar);
                                                 break :tokenization;
                                             };
                                             i = utility.nextNonXmlNameCharIndexAfter(src, i);
 
-                                            suspend tt.setResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
+                                            suspend tt.emitResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
                                         },
                                     }
 
                                     if (i == src.len) break :tokenization;
                                     if (src[i] != ';') {
-                                        tt.setError(i, Error.InvalidCharacter);
+                                        tt.emitError(i, Error.ExpectedEntrefSemicolon);
                                         break :tokenization;
                                     }
 
-                                    suspend tt.setResult(i, .attr_val_entref_end, {});
+                                    suspend tt.emitResult(i, .attr_val_entref_end, {});
 
                                     i += 1;
                                     continue :get_attr_value;
@@ -563,10 +581,27 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                 const text_value_start_index = i;
                                 while (i < src.len and src[i] != @enumToInt(quote) and src[i] != '&') : (i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {}
 
-                                suspend tt.setResult(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index });
-                                continue :get_attr_value;
+                                suspend tt.emitResult(text_value_start_index, .attr_val_text, .{ .len = i - text_value_start_index });
                             }
-                            unreachable;
+
+                            std.debug.assert(quote == @intToEnum(QuoteType, src[i]));
+
+                            suspend switch (quote) {
+                                .single => tt.emitResult(i, .attr_quote_single, {}),
+                                .double => tt.emitResult(i, .attr_quote_double, {}),
+                            };
+
+                            i += 1;
+                            if (i == src.len) break :tokenization;
+                            if (src[i] != '>' and
+                                src[i] != '/' and
+                                !utility.isXmlWhitespaceChar(src[i]))
+                            {
+                                tt.emitError(i, Error.InvalidCharacter);
+                                break :tokenization;
+                            }
+
+                            continue :get_attributes;
                         },
                     }
                     unreachable;
@@ -583,198 +618,241 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
     }
 }
 
-fn setResult(tt: *TagTokenizer, index: usize, comptime id: Tok.Id, expr: anytype) void {
+fn emitResult(tt: *TagTokenizer, index: usize, comptime id: Tok.Id, expr: anytype) void {
     std.debug.assert(tt.tok.* == null);
     tt.tok.* = Tok.init(index, id, expr);
 }
 
-fn setError(tt: *TagTokenizer, index: usize, code: Error) void {
-    tt.setResult(index, .err, .{ .code = code });
+fn emitError(tt: *TagTokenizer, index: usize, code: Error) void {
+    tt.emitResult(index, .err, .{ .code = code });
 }
 
-const tests = struct {
-    const TestTagTokenizer = struct {
-        tt: TagTokenizer = .{},
-        src: []const u8 = &.{},
+const TestTagTokenizer = struct {
+    tt: TagTokenizer = .{},
+    src: []const u8 = &.{},
 
-        fn reset(test_tt: *TestTagTokenizer, src: []const u8) validate_slice.ValidateSliceResult {
-            test_tt.src = src;
-            return test_tt.tt.reset(test_tt.src);
+    fn reset(test_tt: *TestTagTokenizer, src: []const u8) validate_slice.ValidateSliceResult {
+        test_tt.src = src;
+        return test_tt.tt.reset(test_tt.src);
+    }
+
+    fn resetUnchecked(test_tt: *TestTagTokenizer, src: []const u8) void {
+        test_tt.src = src;
+        test_tt.tt.resetUnchecked(test_tt.src);
+    }
+
+    fn next(test_tt: *TestTagTokenizer) ?Tok {
+        return test_tt.tt.next();
+    }
+
+    fn expectPiOpen(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.pi_open, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectPiTarget(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.pi_target, tok.info);
+        try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
+    }
+    fn expectPiTok(test_tt: *TestTagTokenizer, token: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.pi_tok, tok.info);
+        try std.testing.expectEqualStrings(token, tok.slice(test_tt.src));
+    }
+    fn expectPiStr(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.pi_str, tok.info);
+
+        const actual_slice = tok.slice(test_tt.src);
+
+        try std.testing.expect(switch (actual_slice[0]) {
+            '\'', '\"' => true,
+            else => false,
+        });
+        try std.testing.expect(0 != (actual_slice.len - 1));
+        try std.testing.expectEqual(actual_slice[0], actual_slice[actual_slice.len - 1]);
+
+        const expected_slice = try std.mem.concat(std.testing.allocator, u8, &.{ actual_slice[0..1], text, actual_slice[actual_slice.len - 1 ..][0..1] });
+        defer std.testing.allocator.free(expected_slice);
+
+        try std.testing.expectEqualStrings(expected_slice, actual_slice);
+    }
+    fn expectPiClose(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.pi_close, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+
+    fn expectCommentStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.comment_start, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectCommentText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.comment_text, tok.info);
+        try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
+    }
+    fn expectCommentEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.comment_end, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+
+    fn expectCDataStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.cdata_start, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectCDataText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.cdata_text, tok.info);
+        try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
+    }
+    fn expectCDataEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.cdata_end, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+
+    fn expectElemOpenStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_open_start, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectElemCloseStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_close_start, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectElemCloseInline(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_close_inline, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectElemTagEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_tag_end, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectElemTagName(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.elem_tag_name, tok.info);
+        try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
+    }
+
+    fn expectAttrName(test_tt: *TestTagTokenizer, name: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_name, tok.info);
+        try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
+    }
+    fn expectAttrEql(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_eql, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectAttrQuote(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expect(switch (tok.info) {
+            .attr_quote_single,
+            .attr_quote_double,
+            => true,
+            else => false,
+        });
+        try std.testing.expectEqual(@as(usize, 1), tok.slice(test_tt.src).len);
+        const actual = tok.slice(test_tt.src)[0];
+        try std.testing.expect(actual == '\"' or actual == '\'');
+    }
+    fn expectAttrValText(test_tt: *TestTagTokenizer, text: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_text, tok.info);
+        try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
+    }
+    fn expectAttrValEntrefStart(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_entref_start, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+    fn expectAttrValEntrefId(test_tt: *TestTagTokenizer, id: []const u8) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_entref_id, tok.info);
+        try std.testing.expectEqualStrings(id, tok.slice(test_tt.src));
+    }
+    fn expectAttrValEntrefEnd(test_tt: *TestTagTokenizer) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(Tok.Id.attr_val_entref_end, tok.info);
+        try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+    }
+
+    fn expectErr(test_tt: *TestTagTokenizer, err: TagTokenizer.Error) !void {
+        const tok = test_tt.next() orelse return error.TestExpectedEqual;
+        try std.testing.expectEqual(TagTokenizer.Tok.Id.err, tok.info);
+        try std.testing.expectEqual(err, tok.info.err.code);
+        switch (err) {
+            Error.InvalidDoubleDashInComment => try std.testing.expectEqualStrings("--", test_tt.src[tok.index .. tok.index + "--".len]),
+            else => {},
+        }
+    }
+    fn expectNull(test_tt: *TestTagTokenizer) !void {
+        try std.testing.expectEqual(@as(?TagTokenizer.Tok, null), test_tt.next());
+    }
+
+    pub usingnamespace shorthands;
+    const shorthands = struct {
+        pub fn expectAttrValEntref(test_tt: *TestTagTokenizer, id: []const u8) !void {
+            try test_tt.expectAttrValEntrefStart();
+            try test_tt.expectAttrValEntrefId(id);
+            try test_tt.expectAttrValEntrefEnd();
         }
 
-        fn resetUnchecked(test_tt: *TestTagTokenizer, src: []const u8) void {
-            test_tt.src = src;
-            test_tt.tt.resetUnchecked(test_tt.src);
+        const AttrVal = union(enum) { text: []const u8, entref: []const u8 };
+        pub fn expectAttrVal(test_tt: *TestTagTokenizer, segments: []const AttrVal) !void {
+            try test_tt.expectAttrQuote();
+            for (segments) |seg| try switch (seg) {
+                .text => |text| test_tt.expectAttrValText(text),
+                .entref => |id| test_tt.expectAttrValEntref(id),
+            };
+            try test_tt.expectAttrQuote();
         }
 
-        fn next(test_tt: *TestTagTokenizer) ?Tok {
-            return test_tt.tt.next();
+        pub fn expectAttr(test_tt: *TestTagTokenizer, name: []const u8, val: []const AttrVal) !void {
+            try test_tt.expectAttrName(name);
+            try test_tt.expectAttrEql();
+            try test_tt.expectAttrVal(val);
         }
 
-        fn expectPiStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.pi_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectPiTarget(test_tt: *TestTagTokenizer, name: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.pi_target, tok.info);
-            try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
-        }
-        fn expectPiTok(test_tt: *TestTagTokenizer, token: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.pi_tok, tok.info);
-            try std.testing.expectEqualStrings(token, tok.slice(test_tt.src));
-        }
-        fn expectPiStr(test_tt: *TestTagTokenizer, str: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.pi_str, tok.info);
-            try std.testing.expectEqualStrings(str, tok.slice(test_tt.src));
-        }
-        fn expectPiEnd(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.pi_end, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+        pub fn expectPiStart(test_tt: *TestTagTokenizer, target_name: []const u8) !void {
+            try test_tt.expectPiOpen();
+            try test_tt.expectPiTarget(target_name);
         }
 
-        fn expectCommentStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.comment_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectCommentText(test_tt: *TestTagTokenizer, text: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.comment_text, tok.info);
-            try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
-        }
-        fn expectCommentEnd(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.comment_end, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+        const PiTokOrStr = union(enum) { tok: []const u8, str: []const u8 };
+        pub fn expectPi(test_tt: *TestTagTokenizer, target_name: []const u8, instrs: []const PiTokOrStr) !void {
+            try test_tt.expectPiStart(target_name);
+            for (instrs) |instr| try switch (instr) {
+                .tok => |tok| test_tt.expectPiTok(tok),
+                .str => |str| test_tt.expectPiStr(str),
+            };
+            try test_tt.expectPiClose();
         }
 
-        fn expectCDataStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.cdata_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectCDataText(test_tt: *TestTagTokenizer, text: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.cdata_text, tok.info);
-            try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
-        }
-        fn expectCDataEnd(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.cdata_end, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+        pub fn expectComment(test_tt: *TestTagTokenizer, text: ?[]const u8) !void {
+            try test_tt.expectCommentStart();
+            if (text) |txt| try test_tt.expectCommentText(txt);
+            try test_tt.expectCommentEnd();
         }
 
-        fn expectElemOpenStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.elem_open_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
+        pub fn expectCData(test_tt: *TestTagTokenizer, text: ?[]const u8) !void {
+            try test_tt.expectCDataStart();
+            if (text) |txt| try test_tt.expectCDataText(txt);
+            try test_tt.expectCDataEnd();
         }
-        fn expectElemCloseStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.elem_close_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectElemCloseInline(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.elem_close_inline, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectElemTagEnd(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.elem_tag_end, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectElemTagName(test_tt: *TestTagTokenizer, name: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.elem_tag_name, tok.info);
-            try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
-        }
-
-        fn expectAttrName(test_tt: *TestTagTokenizer, name: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_name, tok.info);
-            try std.testing.expectEqualStrings(name, tok.slice(test_tt.src));
-        }
-        fn expectAttrEql(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_eql, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectAttrQuote(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_quote, tok.info);
-            try std.testing.expectEqual(@as(usize, 1), tok.slice(test_tt.src).len);
-            const actual = tok.slice(test_tt.src)[0];
-            try std.testing.expect(actual == '\"' or actual == '\'');
-        }
-        fn expectAttrValText(test_tt: *TestTagTokenizer, text: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_val_text, tok.info);
-            try std.testing.expectEqualStrings(text, tok.slice(test_tt.src));
-        }
-        fn expectAttrValEntrefStart(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_val_entref_start, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-        fn expectAttrValEntrefId(test_tt: *TestTagTokenizer, id: []const u8) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_val_entref_id, tok.info);
-            try std.testing.expectEqualStrings(id, tok.slice(test_tt.src));
-        }
-        fn expectAttrValEntrefEnd(test_tt: *TestTagTokenizer) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(Tok.Id.attr_val_entref_end, tok.info);
-            try std.testing.expectEqualStrings(tok.info.cannonicalSlice().?, tok.slice(test_tt.src));
-        }
-
-        fn expectErr(test_tt: *TestTagTokenizer, err: TagTokenizer.Error) !void {
-            const tok = test_tt.next() orelse return error.TestExpectedEqual;
-            try std.testing.expectEqual(TagTokenizer.Tok.Id.err, tok.info);
-            try std.testing.expectEqual(err, tok.info.err.code);
-            switch (err) {
-                Error.InvalidDoubleDashInComment => try std.testing.expectEqualStrings("--", test_tt.src[tok.index .. tok.index + "--".len]),
-                else => {},
-            }
-        }
-        fn expectNull(test_tt: *TestTagTokenizer) !void {
-            try std.testing.expectEqual(@as(?TagTokenizer.Tok, null), test_tt.next());
-        }
-
-        pub usingnamespace shorthands;
-        const shorthands = struct {
-            pub fn expectAttrValEntref(test_tt: *TestTagTokenizer, id: []const u8) !void {
-                try test_tt.expectAttrValEntrefStart();
-                try test_tt.expectAttrValEntrefId(id);
-                try test_tt.expectAttrValEntrefEnd();
-            }
-
-            const AttrVal = union(enum) { text: []const u8, entref: []const u8 };
-            pub fn expectAttrVal(test_tt: *TestTagTokenizer, segments: []const AttrVal) !void {
-                try test_tt.expectAttrQuote();
-                for (segments) |seg| try switch (seg) {
-                    .text => |text| test_tt.expectAttrValText(text),
-                    .entref => |id| test_tt.expectAttrValEntref(id),
-                };
-                try test_tt.expectAttrQuote();
-            }
-
-            pub fn expectAttr(test_tt: *TestTagTokenizer, name: []const u8, val: []const AttrVal) !void {
-                try test_tt.expectAttrName(name);
-                try test_tt.expectAttrEql();
-                try test_tt.expectAttrVal(val);
-            }
-        };
     };
 };
 
 test "Tok Format" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
 
     tt.reset("<?abc d?>").unwrap() catch unreachable;
     // zig fmt: off
@@ -787,118 +865,113 @@ test "Tok Format" {
 }
 
 test "TagTokenizer Empty" {
-    var tt = tests.TestTagTokenizer{};
-
+    var tt = TestTagTokenizer{};
     tt.reset("").unwrap() catch unreachable;
     try tt.expectNull();
 }
 
-test "TagTokenizer Non-Starter" {
-    var tt = tests.TestTagTokenizer{};
+test "TagTokenizer Expect Left Angle Bracket" {
+    var tt = TestTagTokenizer{};
 
     tt.reset("a").unwrap() catch unreachable;
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.ExpectedLeftAngleBracket);
     try tt.expectNull();
 }
 
-test "TagTokenizer Unexpected Eof" {
-    var tt = tests.TestTagTokenizer{};
-
-    tt.reset("<?").unwrap() catch unreachable;
-    try tt.expectPiStart();
-
-    try tt.expectNull();
+test "TagTokenizer Incomplete" {
+    var tt = TestTagTokenizer{};
 
     tt.reset("<!").unwrap() catch unreachable;
+    try tt.expectErr(Error.IncompleteBangToken);
+    try tt.expectNull();
 
+    tt.reset("<! ").unwrap() catch unreachable;
+    try tt.expectErr(Error.IncompleteBangToken);
     try tt.expectNull();
 
     tt.reset("<!-").unwrap() catch unreachable;
-
+    try tt.expectErr(Error.IncompleteBangDashToken);
     try tt.expectNull();
 
-    inline for ([_]void{undefined} ** "[CDATA".len) |_, i| {
-        tt.reset("<!" ++ ("[CDATA"[0 .. i + 1])).unwrap() catch unreachable;
+    tt.reset("<!- ").unwrap() catch unreachable;
+    try tt.expectErr(Error.IncompleteBangDashToken);
+    try tt.expectNull();
 
+    const @"[CDATA" = "[CDATA";
+    inline for ([_]void{undefined} ** @"[CDATA".len) |_, i| {
+        tt.reset("<!" ++ (@"[CDATA"[0 .. i + 1])).unwrap() catch unreachable;
+        try tt.expectErr(Error.IncompleteCDataKeyword);
         try tt.expectNull();
     }
 }
 
 test "TagTokenizer PI" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
+
+    tt.reset("<?0").unwrap() catch unreachable;
+    try tt.expectPiOpen();
+    try tt.expectErr(Error.InvalidPiTargetStartChar);
+    try tt.expectNull();
 
     tt.reset("<?a").unwrap() catch unreachable;
-    try tt.expectPiStart();
+    try tt.expectPiOpen();
     try tt.expectPiTarget("a");
-
     try tt.expectNull();
 
     tt.reset("<?a?").unwrap() catch unreachable;
-    try tt.expectPiStart();
+    try tt.expectPiOpen();
     try tt.expectPiTarget("a");
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.ExpectedWhitespaceAfterPiTarget);
     try tt.expectNull();
 
     tt.reset("<?a?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("a");
-    try tt.expectPiEnd();
+    try tt.expectPi("a", &.{});
     try tt.expectNull();
 
     tt.reset("<?a ?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("a");
-    try tt.expectPiEnd();
+    try tt.expectPi("a", &.{});
     try tt.expectNull();
 
     tt.reset("<?abc d?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("abc");
-    try tt.expectPiTok("d");
-    try tt.expectPiEnd();
+    try tt.expectPi("abc", &.{.{ .tok = "d" }});
     try tt.expectNull();
 
     tt.reset("<?abc def = ''?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("abc");
-    try tt.expectPiTok("def");
-    try tt.expectPiTok("=");
-    try tt.expectPiStr("''");
-    try tt.expectPiEnd();
+    try tt.expectPi("abc", &.{
+        .{ .tok = "def" },
+        .{ .tok = "=" },
+        .{ .str = "" },
+    });
     try tt.expectNull();
 
     tt.reset("<?abc def = \"g\"?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("abc");
-    try tt.expectPiTok("def");
-    try tt.expectPiTok("=");
-    try tt.expectPiStr("\"g\"");
-    try tt.expectPiEnd();
+    try tt.expectPi("abc", &.{
+        .{ .tok = "def" },
+        .{ .tok = "=" },
+        .{ .str = "g" },
+    });
     try tt.expectNull();
 
     tt.reset("<?abc def = 'ghi'\"\" ?>").unwrap() catch unreachable;
-    try tt.expectPiStart();
-    try tt.expectPiTarget("abc");
-    try tt.expectPiTok("def");
-    try tt.expectPiTok("=");
-    try tt.expectPiStr("'ghi'");
-    try tt.expectPiStr("\"\"");
-    try tt.expectPiEnd();
+    try tt.expectPi("abc", &.{
+        .{ .tok = "def" },
+        .{ .tok = "=" },
+        .{ .str = "ghi" },
+        .{ .str = "" },
+    });
     try tt.expectNull();
 }
 
 test "TagTokenizer Comment" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
 
     tt.reset("<!--").unwrap() catch unreachable;
     try tt.expectCommentStart();
-
     try tt.expectNull();
 
     tt.reset("<!---").unwrap() catch unreachable;
     try tt.expectCommentStart();
     try tt.expectCommentText("-");
-
     try tt.expectNull();
 
     tt.reset("<!----").unwrap() catch unreachable;
@@ -907,8 +980,7 @@ test "TagTokenizer Comment" {
     try tt.expectNull();
 
     tt.reset("<!---->").unwrap() catch unreachable;
-    try tt.expectCommentStart();
-    try tt.expectCommentEnd();
+    try tt.expectComment(null);
     try tt.expectNull();
 
     tt.reset("<!----->").unwrap() catch unreachable;
@@ -923,41 +995,33 @@ test "TagTokenizer Comment" {
     try tt.expectNull();
 
     tt.reset("<!--- -->").unwrap() catch unreachable;
-    try tt.expectCommentStart();
-    try tt.expectCommentText("- ");
-    try tt.expectCommentEnd();
+    try tt.expectComment("- ");
     try tt.expectNull();
 
     tt.reset("<!-- - -->").unwrap() catch unreachable;
-    try tt.expectCommentStart();
-    try tt.expectCommentText(" - ");
-    try tt.expectCommentEnd();
+    try tt.expectComment(" - ");
     try tt.expectNull();
 }
 
 test "TagTokenizer CDATA" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
 
     tt.reset("<![CDATA[").unwrap() catch unreachable;
     try tt.expectCDataStart();
-
     try tt.expectNull();
 
     tt.reset("<![CDATA[]").unwrap() catch unreachable;
     try tt.expectCDataStart();
     try tt.expectCDataText("]");
-
     try tt.expectNull();
 
     tt.reset("<![CDATA[]]").unwrap() catch unreachable;
     try tt.expectCDataStart();
     try tt.expectCDataText("]]");
-
     try tt.expectNull();
 
     tt.reset("<![CDATA[]]>").unwrap() catch unreachable;
-    try tt.expectCDataStart();
-    try tt.expectCDataEnd();
+    try tt.expectCData(null);
     try tt.expectNull();
 
     inline for (.{
@@ -969,49 +1033,45 @@ test "TagTokenizer CDATA" {
         "]>]",
     }) |maybe_ambiguous_content| {
         tt.reset("<![CDATA[" ++ maybe_ambiguous_content ++ "]]>").unwrap() catch unreachable;
-        try tt.expectCDataStart();
-        try tt.expectCDataText(maybe_ambiguous_content);
-        try tt.expectCDataEnd();
+        try tt.expectCData(maybe_ambiguous_content);
         try tt.expectNull();
     }
 
     tt.reset("<![CDATA[a]]>").unwrap() catch unreachable;
-    try tt.expectCDataStart();
-    try tt.expectCDataText("a");
-    try tt.expectCDataEnd();
+    try tt.expectCData("a");
     try tt.expectNull();
 
     tt.reset("<![CDATA[ foobar ]]>").unwrap() catch unreachable;
-    try tt.expectCDataStart();
-    try tt.expectCDataText(" foobar ");
-    try tt.expectCDataEnd();
+    try tt.expectCData(" foobar ");
     try tt.expectNull();
 }
 
 test "TagTokenizer Element Close" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
 
     tt.reset("</").unwrap() catch unreachable;
     try tt.expectElemCloseStart();
+    try tt.expectNull();
 
+    tt.reset("</-").unwrap() catch unreachable;
+    try tt.expectElemCloseStart();
+    try tt.expectErr(Error.ExpectedElemCloseNameStartChar);
     try tt.expectNull();
 
     tt.reset("</a").unwrap() catch unreachable;
     try tt.expectElemCloseStart();
     try tt.expectElemTagName("a");
-
     try tt.expectNull();
 
     tt.reset("</foo").unwrap() catch unreachable;
     try tt.expectElemCloseStart();
     try tt.expectElemTagName("foo");
-
     try tt.expectNull();
 
     tt.reset("</foo ñ").unwrap() catch unreachable;
     try tt.expectElemCloseStart();
     try tt.expectElemTagName("foo");
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.UnexpectedCharacterFollowingElemCloseName);
     try tt.expectNull();
 
     tt.reset("</foo>").unwrap() catch unreachable;
@@ -1034,35 +1094,49 @@ test "TagTokenizer Element Close" {
 }
 
 test "TagTokenizer Element Open" {
-    var tt = tests.TestTagTokenizer{};
+    var tt = TestTagTokenizer{};
 
     tt.reset("<").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
+    try tt.expectNull();
 
+    tt.reset("<0").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectErr(Error.ExpectedElemOpenNameStartChar);
     try tt.expectNull();
 
     tt.reset("<a").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("a");
-
     try tt.expectNull();
 
     tt.reset("<foo").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
+    try tt.expectNull();
 
+    tt.reset("<foo -").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectErr(Error.InvalidCharacter);
     try tt.expectNull();
 
     tt.reset("<foo/").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.IncompleteElemCloseInlineTok);
     try tt.expectNull();
 
     tt.reset("<foo /").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.IncompleteElemCloseInlineTok);
+    try tt.expectNull();
+
+    tt.reset("<foo /-").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectErr(Error.ExpectedRightAngleBracket);
     try tt.expectNull();
 
     tt.reset("<foo>").unwrap() catch unreachable;
@@ -1088,19 +1162,22 @@ test "TagTokenizer Element Open" {
     try tt.expectElemTagName("foo");
     try tt.expectElemCloseInline();
     try tt.expectNull();
+}
+
+test "TagTokenizer Element Open Attributes" {
+    var tt = TestTagTokenizer{};
 
     tt.reset("<foo bar ").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
     try tt.expectAttrName("bar");
-
     try tt.expectNull();
 
     tt.reset("<foo bar />").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
     try tt.expectAttrName("bar");
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.ExpectedAttrEql);
     try tt.expectNull();
 
     tt.reset("<foo bar = ").unwrap() catch unreachable;
@@ -1108,7 +1185,6 @@ test "TagTokenizer Element Open" {
     try tt.expectElemTagName("foo");
     try tt.expectAttrName("bar");
     try tt.expectAttrEql();
-
     try tt.expectNull();
 
     tt.reset("<foo bar = />").unwrap() catch unreachable;
@@ -1116,7 +1192,15 @@ test "TagTokenizer Element Open" {
     try tt.expectElemTagName("foo");
     try tt.expectAttrName("bar");
     try tt.expectAttrEql();
-    try tt.expectErr(Error.InvalidCharacter);
+    try tt.expectErr(Error.ExpectedAttrQuote);
+    try tt.expectNull();
+
+    tt.reset("<foo bar='").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
     try tt.expectNull();
 
     tt.reset("<foo bar=''/>").unwrap() catch unreachable;
@@ -1133,11 +1217,61 @@ test "TagTokenizer Element Open" {
     try tt.expectElemCloseInline();
     try tt.expectNull();
 
+    tt.reset("<foo bar='&").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
+    try tt.expectAttrValEntrefStart();
+    try tt.expectNull();
+
+    tt.reset("<foo bar='&0").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
+    try tt.expectAttrValEntrefStart();
+    try tt.expectErr(Error.InvalidEntrefIdNameChar);
+    try tt.expectNull();
+
+    tt.reset("<foo bar='&baz").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
+    try tt.expectAttrValEntrefStart();
+    try tt.expectAttrValEntrefId("baz");
+    try tt.expectNull();
+
+    tt.reset("<foo bar='&baz ").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
+    try tt.expectAttrValEntrefStart();
+    try tt.expectAttrValEntrefId("baz");
+    try tt.expectErr(Error.ExpectedEntrefSemicolon);
+    try tt.expectNull();
+
     tt.reset("<foo bar='&baz;'/>").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("foo");
     try tt.expectAttr("bar", &.{.{ .entref = "baz" }});
     try tt.expectElemCloseInline();
+    try tt.expectNull();
+
+    tt.reset("<foo bar='&#Z").unwrap() catch unreachable;
+    try tt.expectElemOpenStart();
+    try tt.expectElemTagName("foo");
+    try tt.expectAttrName("bar");
+    try tt.expectAttrEql();
+    try tt.expectAttrQuote();
+    try tt.expectAttrValEntrefStart();
+    try tt.expectErr(Error.InvalidEntrefIdChar);
     try tt.expectNull();
 
     tt.reset("<foo bar='&#0123456789abcdef;'/>").unwrap() catch unreachable;
@@ -1157,9 +1291,7 @@ test "TagTokenizer Element Open" {
     tt.reset("<A B='foo&bar;baz'>").unwrap() catch unreachable;
     try tt.expectElemOpenStart();
     try tt.expectElemTagName("A");
-
     try tt.expectAttr("B", &.{ .{ .text = "foo" }, .{ .entref = "bar" }, .{ .text = "baz" } });
-
     try tt.expectElemTagEnd();
     try tt.expectNull();
 

@@ -253,7 +253,17 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
 
                 std.debug.assert(tag_tokenizer.next() == null);
             },
-            .cdata_start => if (depth == 0) std.debug.todo("Emit error.") else std.debug.todo("Do this."),
+            .cdata_start => if (depth == 0) std.debug.todo("Emit error.") else {
+                const cdata_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (cdata_text.info != .cdata_text) std.debug.todo("Emit error.");
+
+                const cdata_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                if (cdata_end.info != .cdata_end) std.debug.todo("Emit error.");
+
+                const len: usize = cdata_end.index + cdata_end.info.cannonicalSlice().?.len;
+                suspend ts.emitResult(i, .cdata, .{ .len = len });
+                i += len;
+            },
             .elem_open_start => tokenize_elem_open: {
                 depth += 1;
 
@@ -284,7 +294,17 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                                         });
                                     },
 
-                                    .attr_val_entref_start => std.debug.todo("Do this."),
+                                    .attr_val_entref_start => {
+                                        const attr_val_entref_id = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                        if (attr_val_entref_id.info != .attr_val_entref_id) std.debug.todo("Emit error.");
+
+                                        const attr_val_entref_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                        if (attr_val_entref_end.info != .attr_val_entref_end) std.debug.todo("Emit error.");
+
+                                        const start = i + attr_val_or_quote.index;
+                                        const end = i + attr_val_entref_end.index + attr_val_entref_end.info.cannonicalSlice().?.len;
+                                        suspend ts.emitResult(start, .attr_val_entref, .{ .len = end - start });
+                                    },
 
                                     .attr_quote_double,
                                     .attr_quote_single,
@@ -577,13 +597,58 @@ test "TokenStream Comment & PI" {
     try ts.expectNull();
 }
 
-test "Element & Attributes" {
+test "TokenStream Element & Attributes" {
     var ts = TestTokenStream{};
 
     ts.reset("<foo bar = 'baz'/>").unwrap() catch unreachable;
     try ts.expectElemOpen("foo");
     try ts.expectAttrName("bar");
     try ts.expectAttrValText("baz");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
+
+    ts.reset("<foo bar = '&baz;'/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValEntref("baz");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
+
+    ts.reset("<foo bar = 'fizz&baz;buzz'/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValText("fizz");
+    try ts.expectAttrValEntref("baz");
+    try ts.expectAttrValText("buzz");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
+
+    ts.reset("<foo bar = '&fizz;baz&buzz;'/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValEntref("fizz");
+    try ts.expectAttrValText("baz");
+    try ts.expectAttrValEntref("buzz");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
+
+    ts.reset("<foo bar = '&fizz;&baz;&buzz;'/>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValEntref("fizz");
+    try ts.expectAttrValEntref("baz");
+    try ts.expectAttrValEntref("buzz");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
+
+    ts.reset("<foo bar='baz'><fizz buzz = \"boo\" /></foo>").unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectAttrName("bar");
+    try ts.expectAttrValText("baz");
+    try ts.expectElemOpen("fizz");
+    try ts.expectAttrName("buzz");
+    try ts.expectAttrValText("boo");
+    try ts.expectElemClose("fizz");
     try ts.expectElemClose("foo");
     try ts.expectNull();
 }

@@ -336,7 +336,6 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                 break :document;
             }
             if (i == src.len) {
-                std.debug.print("\n\ni: {}\nsrc.len: {}\n\n", .{ i, src.len });
                 std.debug.todo("Emit error.");
                 break :document;
             }

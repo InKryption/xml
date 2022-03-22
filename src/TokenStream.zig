@@ -178,23 +178,160 @@ pub const Tok = struct {
 };
 
 fn tokenize(ts: *TokenStream, src: []const u8) void {
+    const static = struct {
+        inline fn processPiToks(tag_tokenizer: *TagTokenizer, ptr_i: *usize) ?Tok {
+            return if (tag_tokenizer.next()) |pi_instr| blk: {
+                const start = ptr_i.* + pi_instr.index;
+                break :blk switch (pi_instr.info) {
+                    .pi_tok => Tok.init(start, .pi_tok, .{ .len = pi_instr.info.pi_tok.len }),
+                    .pi_str => Tok.init(start, .pi_str, .{ .len = pi_instr.info.pi_str.len }),
+                    .pi_close => ret_null: {
+                        ptr_i.* += pi_instr.index + pi_instr.info.cannonicalSlice().?.len;
+                        std.debug.assert(tag_tokenizer.next() == null);
+                        break :ret_null null;
+                    },
+                    else => unreachable,
+                };
+            } else std.debug.todo("Emit error.");
+        }
+
+        inline fn processCommentTok(tag_tokenizer: *TagTokenizer, ptr_i: *usize) Tok {
+            const comment_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+            if (comment_text.info != .comment_text) std.debug.todo("Emit error.");
+
+            const comment_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+            if (comment_end.info != .comment_end) std.debug.todo("Emit error.");
+
+            const start = ptr_i.*;
+            const len: usize = comment_end.index + comment_end.info.cannonicalSlice().?.len;
+            ptr_i.* += len;
+
+            std.debug.assert(tag_tokenizer.next() == null);
+            return Tok.init(start, .comment, .{ .len = len });
+        }
+
+        inline fn processAttrValToks(tag_tokenizer: *TagTokenizer, i: usize) ?Tok {
+            return if (tag_tokenizer.next()) |attr_val_or_quote| switch (attr_val_or_quote.info) {
+                .attr_val_text => Tok.init(i + attr_val_or_quote.index, .attr_val_text, .{
+                    .len = attr_val_or_quote.info.attr_val_text.len,
+                }),
+
+                .attr_val_entref_start => blk: {
+                    const attr_val_entref_id = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (attr_val_entref_id.info != .attr_val_entref_id) std.debug.todo("Emit error.");
+
+                    const attr_val_entref_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (attr_val_entref_end.info != .attr_val_entref_end) std.debug.todo("Emit error.");
+
+                    const start = i + attr_val_or_quote.index;
+                    const end = i + attr_val_entref_end.index + attr_val_entref_end.info.cannonicalSlice().?.len;
+                    break :blk Tok.init(start, .attr_val_entref, .{ .len = end - start });
+                },
+
+                .attr_quote_double,
+                .attr_quote_single,
+                => null,
+
+                else => unreachable,
+            } else std.debug.todo("Emit error.");
+        }
+    };
+
     var i: usize = 0;
     var tag_tokenizer = TagTokenizer{};
     suspend {}
 
-    var depth: usize = 0;
-    tokenization: while (true) {
-        if (depth == 0) {
+    tokenization: {
+        prolog: while (true) {
             i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
-        } else {
-            if (i == src.len) {
-                std.debug.todo("Emit error.");
-            } else if (src[i] != '<') {
-                const start = i;
+            if (i == src.len) break :tokenization;
+            if (src[i] != '<') std.debug.todo("Emit error.");
 
+            tag_tokenizer.resetUnchecked(src[i..]);
+            if (tag_tokenizer.next()) |first_tag| switch (first_tag.info) {
+                .pi_open => {
+                    const pi_target = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (pi_target.info != .pi_target) std.debug.todo("Emit error.");
+
+                    suspend ts.emitResult(i, .pi_start, .{ .len = pi_target.index + pi_target.info.pi_target.len });
+                    while (static.processPiToks(&tag_tokenizer, &i)) |tok| {
+                        suspend ts.emitResultValue(tok);
+                    }
+                },
+                .comment_start => {
+                    suspend ts.emitResultValue(static.processCommentTok(&tag_tokenizer, &i));
+                },
+                .cdata_start => std.debug.todo("Emit error."),
+                .elem_open_start => tokenize_elem_open: {
+                    const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
+
+                    const elem_open = Tok.init(i, .elem_open, .{ .len = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len });
+                    suspend ts.emitResult(i, .elem_open, .{ .len = elem_open.info.elem_open.len });
+
+                    while (true) {
+                        const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                        switch (next_tag.info) {
+                            .attr_name => |attr_name| {
+                                const attr_eql = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                if (attr_eql.info != .attr_eql) std.debug.todo("Emit error.");
+
+                                suspend ts.emitResult(i + next_tag.index, .attr_name, .{ .len = attr_name.len });
+
+                                const attr_quote = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                if (!attr_quote.info.isAttrQuote()) std.debug.todo("Emit error.");
+
+                                while (static.processAttrValToks(&tag_tokenizer, i)) |tok| {
+                                    suspend ts.emitResultValue(tok);
+                                }
+                            },
+                            .elem_close_inline => {
+                                const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                                    .index = elem_open.index + "<".len,
+                                    .len = elem_open.info.elem_open.len - 1,
+                                } });
+                                i += len;
+
+                                std.debug.assert(tag_tokenizer.next() == null);
+                                break :tokenize_elem_open;
+                            },
+                            .elem_tag_end => {
+                                i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                                std.debug.assert(tag_tokenizer.next() == null);
+                                break :prolog;
+                            },
+                            else => unreachable,
+                        }
+                    }
+                },
+                .elem_close_start => std.debug.todo("Emit error."),
+                .err => |err| switch (err.code) {
+                    error.ExpectedLeftAngleBracket => std.debug.todo("Emit error."),
+                    else => unreachable,
+                },
+                else => unreachable,
+            } else break :tokenization;
+        }
+
+        // incremented for each elem_open, and decremented for each elem_close.
+        // starts at 1 since reaching the control flow reaching here means that the prolog block
+        // ended with an elem_open.
+        var depth: usize = 1;
+        document: while (true) {
+            if (depth == 0) {
+                break :document;
+            }
+            if (i == src.len) {
+                std.debug.print("\n\ni: {}\nsrc.len: {}\n\n", .{ i, src.len });
+                std.debug.todo("Emit error.");
+                break :document;
+            }
+            if (src[i] != '<') {
+                const start = i;
                 i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
 
-                if (src[i] == '<') {
+                if (i < src.len and src[i] == '<') {
                     suspend ts.emitResult(start, .whitespace, .{ .len = i - start });
                 } else {
                     while (i < src.len) {
@@ -205,164 +342,105 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                     suspend ts.emitResult(start, .text, .{ .len = i - start });
                 }
             }
-        }
 
-        if (depth == 0 and i == src.len) {
-            break :tokenization;
-        } else if (i == src.len) {
-            std.debug.todo("Emit error.");
-        } else if (src[i] != '<') {
-            std.debug.todo("Emit error");
-        }
+            tag_tokenizer.resetUnchecked(src[i..]);
+            const first_tag = tag_tokenizer.next().?;
+            switch (first_tag.info) {
+                .pi_open => {
+                    const pi_target = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (pi_target.info != .pi_target) std.debug.todo("Emit error.");
 
-        tag_tokenizer.resetUnchecked(src[i..]);
-        if (tag_tokenizer.next()) |first_tag| switch (first_tag.info) {
-            .pi_open => {
-                const pi_target = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (pi_target.info != .pi_target) std.debug.todo("Emit error.");
-
-                suspend ts.emitResult(i, .pi_start, .{ .len = pi_target.index + pi_target.info.pi_target.len });
-
-                while (tag_tokenizer.next()) |pi_instr| {
-                    switch (pi_instr.info) {
-                        .pi_tok => {
-                            suspend ts.emitResult(i + pi_instr.index, .pi_tok, .{ .len = pi_instr.info.pi_tok.len });
-                        },
-                        .pi_str => {
-                            suspend ts.emitResult(i + pi_instr.index, .pi_str, .{ .len = pi_instr.info.pi_str.len });
-                        },
-                        .pi_close => {
-                            i += pi_instr.index + pi_instr.info.cannonicalSlice().?.len;
-                            std.debug.assert(tag_tokenizer.next() == null);
-                            break;
-                        },
-                        else => unreachable,
+                    suspend ts.emitResult(i, .pi_start, .{ .len = pi_target.index + pi_target.info.pi_target.len });
+                    while (static.processPiToks(&tag_tokenizer, &i)) |tok| {
+                        suspend ts.emitResultValue(tok);
                     }
-                } else std.debug.todo("Emit error.");
-            },
-            .comment_start => {
-                const comment_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (comment_text.info != .comment_text) std.debug.todo("Emit error.");
+                },
+                .comment_start => {
+                    suspend ts.emitResultValue(static.processCommentTok(&tag_tokenizer, &i));
+                },
+                .cdata_start => {
+                    const cdata_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (cdata_text.info != .cdata_text) std.debug.todo("Emit error.");
 
-                const comment_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (comment_end.info != .comment_end) std.debug.todo("Emit error.");
+                    const cdata_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (cdata_end.info != .cdata_end) std.debug.todo("Emit error.");
 
-                const len: usize = comment_end.index + comment_end.info.cannonicalSlice().?.len;
-                suspend ts.emitResult(i, .comment, .{ .len = len });
-                i += len;
+                    const len: usize = cdata_end.index + cdata_end.info.cannonicalSlice().?.len;
+                    suspend ts.emitResult(i, .cdata, .{ .len = len });
+                    i += len;
+                },
+                .elem_open_start => tokenize_elem_open: {
+                    depth += 1;
 
-                std.debug.assert(tag_tokenizer.next() == null);
-            },
-            .cdata_start => if (depth == 0) std.debug.todo("Emit error.") else {
-                const cdata_text = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (cdata_text.info != .cdata_text) std.debug.todo("Emit error.");
+                    const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
 
-                const cdata_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (cdata_end.info != .cdata_end) std.debug.todo("Emit error.");
+                    const elem_open = Tok.init(i, .elem_open, .{ .len = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len });
+                    suspend ts.emitResult(i, .elem_open, .{ .len = elem_open.info.elem_open.len });
 
-                const len: usize = cdata_end.index + cdata_end.info.cannonicalSlice().?.len;
-                suspend ts.emitResult(i, .cdata, .{ .len = len });
-                i += len;
-            },
-            .elem_open_start => tokenize_elem_open: {
-                depth += 1;
+                    while (true) {
+                        const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                        switch (next_tag.info) {
+                            .attr_name => |attr_name| {
+                                const attr_eql = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                if (attr_eql.info != .attr_eql) std.debug.todo("Emit error.");
 
-                const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
+                                suspend ts.emitResult(i + next_tag.index, .attr_name, .{ .len = attr_name.len });
 
-                const elem_open = Tok.init(i, .elem_open, .{ .len = elem_tag_name.index + elem_tag_name.info.elem_tag_name.len });
-                suspend ts.emitResult(i, .elem_open, .{ .len = elem_open.info.elem_open.len });
+                                const attr_quote = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                                if (!attr_quote.info.isAttrQuote()) std.debug.todo("Emit error.");
 
-                while (true) {
-                    const next_tag = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                    switch (next_tag.info) {
-                        .attr_name => |attr_name| {
-                            const attr_eql = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                            if (attr_eql.info != .attr_eql) std.debug.todo("Emit error.");
-
-                            suspend ts.emitResult(i + next_tag.index, .attr_name, .{ .len = attr_name.len });
-
-                            const attr_quote = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                            if (!attr_quote.info.isAttrQuote()) std.debug.todo("Emit error.");
-
-                            while (tag_tokenizer.next()) |attr_val_or_quote| {
-                                if (attr_val_or_quote.info.isAttrQuote()) break;
-                                switch (attr_val_or_quote.info) {
-                                    .attr_val_text => {
-                                        suspend ts.emitResult(i + attr_val_or_quote.index, .attr_val_text, .{
-                                            .len = attr_val_or_quote.info.attr_val_text.len,
-                                        });
-                                    },
-
-                                    .attr_val_entref_start => {
-                                        const attr_val_entref_id = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                                        if (attr_val_entref_id.info != .attr_val_entref_id) std.debug.todo("Emit error.");
-
-                                        const attr_val_entref_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                                        if (attr_val_entref_end.info != .attr_val_entref_end) std.debug.todo("Emit error.");
-
-                                        const start = i + attr_val_or_quote.index;
-                                        const end = i + attr_val_entref_end.index + attr_val_entref_end.info.cannonicalSlice().?.len;
-                                        suspend ts.emitResult(start, .attr_val_entref, .{ .len = end - start });
-                                    },
-
-                                    .attr_quote_double,
-                                    .attr_quote_single,
-                                    => break,
-                                    else => unreachable,
+                                while (static.processAttrValToks(&tag_tokenizer, i)) |tok| {
+                                    suspend ts.emitResultValue(tok);
                                 }
-                            } else std.debug.todo("Emit error.");
-                        },
-                        .elem_close_inline => {
-                            depth -= 1;
+                            },
+                            .elem_close_inline => {
+                                depth -= 1;
 
-                            const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                            suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
-                                .index = elem_open.index + "<".len,
-                                .len = elem_open.info.elem_open.len - 1,
-                            } });
+                                const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                                    .index = elem_open.index + "<".len,
+                                    .len = elem_open.info.elem_open.len - 1,
+                                } });
+                                i += len;
 
-                            i += len;
-
-                            std.debug.assert(tag_tokenizer.next() == null);
-                            if (depth == 0) break :tokenization;
-                            break :tokenize_elem_open;
-                        },
-                        .elem_tag_end => {
-                            i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                            std.debug.assert(tag_tokenizer.next() == null);
-                            break :tokenize_elem_open;
-                        },
-                        else => unreachable,
+                                std.debug.assert(tag_tokenizer.next() == null);
+                                break :tokenize_elem_open;
+                            },
+                            .elem_tag_end => {
+                                i += next_tag.index + next_tag.info.cannonicalSlice().?.len;
+                                std.debug.assert(tag_tokenizer.next() == null);
+                                break :tokenize_elem_open;
+                            },
+                            else => unreachable,
+                        }
                     }
-                }
-            },
-            .elem_close_start => if (depth == 0) std.debug.todo("Emit error.") else {
-                depth -= 1;
+                },
+                .elem_close_start => {
+                    depth -= 1;
 
-                const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
+                    const elem_tag_name = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (elem_tag_name.info != .elem_tag_name) std.debug.todo("Emit error.");
 
-                const elem_tag_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
-                if (elem_tag_end.info != .elem_tag_end) std.debug.todo("Emit error.");
+                    const elem_tag_end = tag_tokenizer.next() orelse std.debug.todo("Emit error.");
+                    if (elem_tag_end.info != .elem_tag_end) std.debug.todo("Emit error.");
 
-                const len = elem_tag_end.index + elem_tag_end.info.cannonicalSlice().?.len;
-                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
-                    .index = i + elem_tag_name.index,
-                    .len = elem_tag_name.info.elem_tag_name.len,
-                } });
+                    const len = elem_tag_end.index + elem_tag_end.info.cannonicalSlice().?.len;
+                    suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
+                        .index = i + elem_tag_name.index,
+                        .len = elem_tag_name.info.elem_tag_name.len,
+                    } });
 
-                std.debug.assert(tag_tokenizer.next() == null);
-                if (depth == 0) break :tokenization;
-            },
-            .err => |err| switch (err.code) {
-                error.ExpectedLeftAngleBracket => std.debug.todo("Emit error."),
+                    i += len;
+                    std.debug.assert(tag_tokenizer.next() == null);
+                },
+                .err => |err| switch (err.code) {
+                    error.ExpectedLeftAngleBracket => std.debug.todo("Emit error."),
+                    else => unreachable,
+                },
                 else => unreachable,
-            },
-            else => unreachable,
-        } else if (depth == 0) {
-            break :tokenization;
-        } else unreachable;
+            }
+        }
     }
 
     while (true) {
@@ -370,9 +448,13 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
     }
 }
 
-fn emitResult(ts: *TokenStream, index: usize, comptime id: Tok.Id, expr: anytype) void {
+fn emitResultValue(ts: *TokenStream, tok: Tok) void {
     std.debug.assert(ts.tok.* == null);
-    ts.tok.* = Tok.init(index, id, expr);
+    ts.tok.* = tok;
+}
+
+fn emitResult(ts: *TokenStream, index: usize, comptime id: Tok.Id, expr: anytype) void {
+    ts.emitResultValue(Tok.init(index, id, expr));
 }
 
 fn emitError(ts: *TokenStream, index: usize, code: Error) void {

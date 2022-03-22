@@ -235,6 +235,26 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                 else => unreachable,
             } else std.debug.todo("Emit error.");
         }
+
+        inline fn calculateElemCloseInlineTok(
+            tag_tokenizer: *TagTokenizer,
+            elem_open: Tok,
+            elem_close_inline: TagTokenizer.Tok,
+            ptr_i: *usize,
+        ) Tok {
+            const len: usize = elem_close_inline.index + elem_close_inline.info.cannonicalSlice().?.len;
+            const result = Tok.init(ptr_i.*, .elem_close, Tok.Info.ElementClose{
+                .len = len,
+                .name = Tok.Info.ElementClose.Name{
+                    .index = elem_open.index + "<".len,
+                    .len = elem_open.info.elem_open.len - 1,
+                },
+            });
+            ptr_i.* += len;
+
+            std.debug.assert(tag_tokenizer.next() == null);
+            return result;
+        }
     };
 
     var i: usize = 0;
@@ -286,14 +306,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                                 }
                             },
                             .elem_close_inline => {
-                                const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
-                                    .index = elem_open.index + "<".len,
-                                    .len = elem_open.info.elem_open.len - 1,
-                                } });
-                                i += len;
-
-                                std.debug.assert(tag_tokenizer.next() == null);
+                                suspend ts.emitResultValue(static.calculateElemCloseInlineTok(&tag_tokenizer, elem_open, next_tag, &i));
                                 break :tokenize_elem_open;
                             },
                             .elem_tag_end => {
@@ -396,15 +409,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
                             },
                             .elem_close_inline => {
                                 depth -= 1;
-
-                                const len: usize = next_tag.index + next_tag.info.cannonicalSlice().?.len;
-                                suspend ts.emitResult(i, .elem_close, Tok.Info.ElementClose{ .len = len, .name = .{
-                                    .index = elem_open.index + "<".len,
-                                    .len = elem_open.info.elem_open.len - 1,
-                                } });
-                                i += len;
-
-                                std.debug.assert(tag_tokenizer.next() == null);
+                                suspend ts.emitResultValue(static.calculateElemCloseInlineTok(&tag_tokenizer, elem_open, next_tag, &i));
                                 break :tokenize_elem_open;
                             },
                             .elem_tag_end => {

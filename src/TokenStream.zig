@@ -738,4 +738,25 @@ test "TokenStream Element & Attributes" {
     try ts.expectElemClose("fizz");
     try ts.expectElemClose("foo");
     try ts.expectNull();
+
+    ts.reset(
+        \\<foo>
+        \\    <bar>
+        \\        <baz fizz= "buzz" />
+        \\    </bar>
+        \\</foo>
+    ).unwrap() catch unreachable;
+    try ts.expectElemOpen("foo");
+    try ts.expectWhitespace("\n    ");
+    try ts.expectElemOpen("bar");
+    try ts.expectWhitespace("\n        ");
+    try ts.expectElemOpen("baz");
+    try ts.expectAttrName("fizz");
+    try ts.expectAttrValText("buzz");
+    try ts.expectElemClose("baz");
+    try ts.expectWhitespace("\n    ");
+    try ts.expectElemClose("bar");
+    try ts.expectWhitespace("\n");
+    try ts.expectElemClose("foo");
+    try ts.expectNull();
 }

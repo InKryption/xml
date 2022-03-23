@@ -14,11 +14,11 @@ pub fn codepointAt(src: []const u8, i: usize, cp_len: *u3) u21 {
 }
 
 /// Returns the index of the next non-whitespace character after the provided index, inclusive of the provided index.
-pub fn nextNonXmlWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
+pub fn xmlNextNonWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
     var new_index: usize = start;
     while (new_index < src.len) {
         var cp_len: u3 = undefined;
-        if (isXmlWhitespaceChar(codepointAt(src, new_index, &cp_len))) {
+        if (xmlIsWhitespaceChar(codepointAt(src, new_index, &cp_len))) {
             new_index += cp_len;
         } else break;
     }
@@ -26,11 +26,11 @@ pub fn nextNonXmlWhitespaceCharIndexAfter(src: []const u8, start: usize) usize {
 }
 
 /// Returns the index of the next non-name character after the provided index, inclusive of the provided index.
-pub fn nextNonXmlNameCharIndexAfter(src: []const u8, start: usize) usize {
+pub fn xmlNextNonNameCharIndexAfter(src: []const u8, start: usize) usize {
     var new_index: usize = start;
     while (new_index < src.len) {
         var cp_len: u3 = undefined;
-        if (isXmlNameChar(codepointAt(src, new_index, &cp_len))) {
+        if (xmlIsNameChar(codepointAt(src, new_index, &cp_len))) {
             new_index += cp_len;
         } else break;
     }
@@ -47,17 +47,17 @@ pub fn xmlNameStartCharLengthAt(src: []const u8, i: usize) ?u3 {
 
     var cp_len: u3 = undefined;
     const cp = codepointAt(src, i, &cp_len);
-    return if (isXmlNameStartChar(cp)) cp_len else null;
+    return if (xmlIsNameStartChar(cp)) cp_len else null;
 }
 
-pub inline fn isXmlWhitespaceChar(cp: u21) bool {
+pub inline fn xmlIsWhitespaceChar(cp: u21) bool {
     return switch (cp) {
         ' ', '\t', '\n', '\r' => true,
         else => false,
     };
 }
 
-pub inline fn isXmlNameStartChar(cp: u21) bool {
+pub inline fn xmlIsNameStartChar(cp: u21) bool {
     return switch (cp) {
         ':',
         'A'...'Z',
@@ -80,8 +80,8 @@ pub inline fn isXmlNameStartChar(cp: u21) bool {
     };
 }
 
-pub inline fn isXmlNameChar(cp: u21) bool {
-    return isXmlNameStartChar(cp) or switch (cp) {
+pub inline fn xmlIsNameChar(cp: u21) bool {
+    return xmlIsNameStartChar(cp) or switch (cp) {
         '-',
         '.',
         '0'...'9',

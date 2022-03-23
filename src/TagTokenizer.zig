@@ -268,7 +268,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         tt.emitError(i, Error.InvalidPiTargetStartChar);
                         break :tokenization;
                     };
-                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
+                    i = utility.xmlNextNonNameCharIndexAfter(src, i);
 
                     suspend tt.emitResult("<?".len, .pi_target, .{ .len = i - "<?".len });
                     break :tokenize_pi_target;
@@ -281,13 +281,13 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                     tt.emitResult(i, .pi_close, {});
                     break :tokenization;
                 }
-                if (!utility.isXmlWhitespaceChar(src[i])) {
+                if (!utility.xmlIsWhitespaceChar(src[i])) {
                     tt.emitError(i, Error.ExpectedWhitespaceAfterPiTarget);
                     break :tokenization;
                 }
 
                 get_tokens: while (true) {
-                    i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                    i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
                     if (i == src.len) break :tokenization;
 
                     if (std.mem.startsWith(u8, src[i..], "?>")) {
@@ -313,7 +313,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         else => {
                             const pi_tok_start_index = i;
                             while (i < src.len) : (i += std.unicode.utf8ByteSequenceLength(src[i]) catch unreachable) {
-                                if (utility.isXmlWhitespaceChar(src[i]) or std.mem.startsWith(u8, src[i..], "?>")) {
+                                if (utility.xmlIsWhitespaceChar(src[i]) or std.mem.startsWith(u8, src[i..], "?>")) {
                                     suspend tt.emitResult(pi_tok_start_index, .pi_tok, .{ .len = i - pi_tok_start_index });
                                     continue :get_tokens;
                                 }
@@ -425,12 +425,12 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         tt.emitError(i, Error.ExpectedElemCloseNameStartChar);
                         break :tokenization;
                     };
-                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
+                    i = utility.xmlNextNonNameCharIndexAfter(src, i);
 
                     suspend tt.emitResult("</".len, .elem_tag_name, .{ .len = i - "</".len });
                     break :tokenize_name;
                 }
-                i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
 
                 if (i == src.len) break :tokenization;
                 if (src[i] != '>') {
@@ -449,14 +449,14 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                         tt.emitError(i, Error.ExpectedElemOpenNameStartChar);
                         break :tokenization;
                     };
-                    i = utility.nextNonXmlNameCharIndexAfter(src, i);
+                    i = utility.xmlNextNonNameCharIndexAfter(src, i);
 
                     suspend tt.emitResult("<".len, .elem_tag_name, .{ .len = i - "<".len });
                     break :tokenize_name;
                 }
 
                 get_attributes: while (true) {
-                    i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                    i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
                     if (i == src.len) break :tokenization;
 
                     switch (src[i]) {
@@ -485,13 +485,13 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                     tt.emitError(i, Error.InvalidCharacter);
                                     break :tokenization;
                                 };
-                                i = utility.nextNonXmlNameCharIndexAfter(src, i);
+                                i = utility.xmlNextNonNameCharIndexAfter(src, i);
 
                                 suspend tt.emitResult(attr_name_start_index, .attr_name, .{ .len = i - attr_name_start_index });
                                 break :tokenize_attr_name;
                             }
 
-                            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                            i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
                             if (i == src.len) break :tokenization;
                             if (src[i] != '=') {
                                 tt.emitError(i, Error.ExpectedAttrEql);
@@ -501,7 +501,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             suspend tt.emitResult(i, .attr_eql, {});
 
                             i += 1;
-                            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                            i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
                             if (i == src.len) break :tokenization;
 
                             const QuoteType = enum(u8) { single = '\'', double = '\"' };
@@ -569,7 +569,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                                                 tt.emitError(i, Error.InvalidEntrefIdNameChar);
                                                 break :tokenization;
                                             };
-                                            i = utility.nextNonXmlNameCharIndexAfter(src, i);
+                                            i = utility.xmlNextNonNameCharIndexAfter(src, i);
 
                                             suspend tt.emitResult(entref_id_start_index, .attr_val_entref_id, .{ .len = i - entref_id_start_index });
                                         },
@@ -604,7 +604,7 @@ fn tokenize(tt: *TagTokenizer, src: []const u8) void {
                             if (i == src.len) break :tokenization;
                             if (src[i] != '>' and
                                 src[i] != '/' and
-                                !utility.isXmlWhitespaceChar(src[i]))
+                                !utility.xmlIsWhitespaceChar(src[i]))
                             {
                                 tt.emitError(i, Error.InvalidCharacter);
                                 break :tokenization;

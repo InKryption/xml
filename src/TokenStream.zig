@@ -263,7 +263,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
 
     tokenization: {
         prolog: while (true) {
-            i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+            i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
             if (i == src.len) break :tokenization;
             if (src[i] != '<') std.debug.todo("Emit error.");
 
@@ -341,7 +341,7 @@ fn tokenize(ts: *TokenStream, src: []const u8) void {
             }
             if (src[i] != '<') {
                 const start = i;
-                i = utility.nextNonXmlWhitespaceCharIndexAfter(src, i);
+                i = utility.xmlNextNonWhitespaceCharIndexAfter(src, i);
 
                 if (i < src.len and src[i] == '<') {
                     suspend ts.emitResult(start, .whitespace, .{ .len = i - start });

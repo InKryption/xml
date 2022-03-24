@@ -93,6 +93,13 @@ pub const xml = struct {
             else => false,
         };
     }
+
+    pub inline fn isStringQuote(cp: u21) bool {
+        return switch (cp) {
+            '\"', '\'' => true,
+            else => false,
+        };
+    }
 };
 
 /// Returns the enum value of an enum set which possesses the longest name; null if the

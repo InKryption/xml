@@ -354,7 +354,7 @@ const TestTokenStream = struct {
     }
 };
 
-test {
+test "Start Invariants" {
     var tts = TestTokenStream{};
 
     inline for (.{
@@ -370,6 +370,10 @@ test {
         try tts.reset(empty).unwrap();
         try tts.expectNull();
 
+        try tts.reset(empty ++ "$").unwrap();
+        try tts.expectErr(Error.ExpectedLeftAngleBracket);
+        try tts.expectNull();
+
         try tts.reset(empty ++ "<").unwrap();
         try tts.expectErr(Error.ExpectedCharacterAfterLeftAngleBracket);
         try tts.expectNull();
@@ -378,12 +382,39 @@ test {
         try tts.expectErr(Error.ExpectedPiTargetName);
         try tts.expectNull();
 
+        try tts.reset(empty ++ "<?$").unwrap();
+        try tts.expectErr(Error.ExpectedPiTargetName);
+
         try tts.reset(empty ++ "<!").unwrap();
         try tts.expectErr(Error.ExpectedCharacterAfterLeftAngleBracketBang);
         try tts.expectNull();
 
+        try tts.reset(empty ++ "<!$").unwrap();
+        try tts.expectErr(Error.ExpectedDoubleDashAfterLeftAngleBracketBang);
+        try tts.expectNull();
+
         try tts.reset(empty ++ "<!-").unwrap();
         try tts.expectErr(Error.ExpectedDoubleDashAfterLeftAngleBracketBang);
+        try tts.expectNull();
+
+        try tts.reset(empty ++ "<!-$").unwrap();
+        try tts.expectErr(Error.ExpectedDoubleDashAfterLeftAngleBracketBang);
+        try tts.expectNull();
+
+        try tts.reset(empty ++ "<!--").unwrap();
+        try tts.expectErr(Error.ExpectedCommentClose);
+        try tts.expectNull();
+
+        try tts.reset(empty ++ "<!----").unwrap();
+        try tts.expectErr(Error.ExpectedRightAngleBracketAfterDoubleDashInComment);
+        try tts.expectNull();
+
+        try tts.reset(empty ++ "<!-- --$").unwrap();
+        try tts.expectErr(Error.ExpectedRightAngleBracketAfterDoubleDashInComment);
+        try tts.expectNull();
+
+        try tts.reset(empty ++ "<!-- --->").unwrap();
+        try tts.expectErr(Error.ExpectedRightAngleBracketAfterDoubleDashInComment);
         try tts.expectNull();
     }
 }

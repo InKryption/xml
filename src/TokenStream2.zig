@@ -16,6 +16,7 @@ pub const Error = error{
     ExpectedDoubleDashAfterLeftAngleBracketBang,
     ExpectedRightAngleBracketAfterDoubleDashInComment,
     ExpectedCommentClose,
+    ExpectedElemOpenNameStartChar,
 };
 
 pub const TokOrError = union(enum) {
@@ -104,6 +105,17 @@ pub const Tok = struct {
             };
         }
 
+        pub fn isAttrVal(id: Id) bool {
+            return switch (id) {
+                .attr_val_start,
+                .attr_val_text,
+                .attr_val_entref,
+                .attr_val_end,
+                => true,
+                else => false,
+            };
+        }
+
         pub fn isContent(id: Id) bool {
             return switch (id) {
                 .cdata,
@@ -149,11 +161,11 @@ pub const Tok = struct {
                 .pi_open => null,
                 .pi_tok => null,
                 .pi_str => null,
-                .pi_close => "?>".len,
+                .pi_close => "?>".len, // 2
 
                 .elem_open => null,
                 .elem_close => null,
-                .elem_close_inline => "/>".len,
+                .elem_close_inline => "/>".len, // 2
 
                 .attr_name => null,
                 .attr_val_start => 1,
@@ -311,7 +323,13 @@ fn nextImpl(state: *State, src: []const u8) Error!?Tok {
             break :begin switch (src[state.i]) {
                 '?' => state.tokenizePiTarget(src),
                 '!' => state.tokenizeTopLevelComment(src),
-                else => std.debug.todo(""),
+                else => {
+                    state.i += utility.xml.nameStartCharLengthAt(src, state.i) orelse {
+                        break :begin Error.ExpectedElemOpenNameStartChar;
+                    };
+                    state.i = utility.xml.nextNonNameCharIndexAfter(src, state.i);
+                    std.debug.todo("");
+                },
             };
         },
 
